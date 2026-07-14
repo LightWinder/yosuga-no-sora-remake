@@ -1,14 +1,23 @@
 # 大型游戏素材（体积过大，需本地下载压缩包）
-content-data/
+content-data/audio_ogg/*
+content-data/bg_1920/*
+content-data/character_1920/*
+content-data/event_1920/*
+content-data/font/*
+content-data/thumb/*
+content-data/rule/*
+content-data/ui_1920/*
+
+
 *.mpg
 *.rar
 
 *.dmp
 
 # 日志与临时输出
-out.txt
-err.txt
-*.log
+# out.txt
+# err.txt
+# *.log
 
 # 编辑器配置
 .vscode/
