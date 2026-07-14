@@ -1,0 +1,282 @@
+var HD_SCREEN_FONT_BUTTONS = [
+    %[normalFile:"fangzhengheiti1.png",    selectedFile:"fangzhengheiti2.png",    x:217, y:720, normalWidth:156, hoverX:156, hoverWidth:160, selectedOffsetX:-2],
+    %[normalFile:"fangzhengshusongi1.png", selectedFile:"fangzhengshusong2.png", x:459, y:720, normalWidth:160, hoverX:160, hoverWidth:164, selectedOffsetX:-3],
+    %[normalFile:"hanchanti1.png",         selectedFile:"hanchanti2.png",         x:677, y:720, normalWidth:207, hoverX:207, hoverWidth:211, selectedOffsetX:-3],
+    %[normalFile:"fangzhengkaiti1.png",    selectedFile:"fangzhengkaiti2.png",    x:213, y:797, normalWidth:164, hoverX:164, hoverWidth:167, selectedOffsetX:-6],
+    %[normalFile:"fangzhengfangsong1.png", selectedFile:"fangzhengfangsong2.png", x:458, y:797, normalWidth:168, hoverX:168, hoverWidth:171, selectedOffsetX:-4],
+    %[normalFile:"dianzhensongti1.png",    selectedFile:"dianzhensongti2.png",    x:683, y:797, normalWidth:240, hoverX:240, hoverWidth:243, selectedOffsetX:0]
+];
+
+// 按钮数组索引 → CONFIG.fontType（与 ConfigWindow.tjs Font1–Font6 一致）
+var HD_FONT_TYPE_MAP = [2, 4, 0, 3, 5, 1];
+
+class ConfigScreenPage
+{
+    var _owner;
+    var _window;
+    var _root;
+
+    var _layers = [];
+    var _buttons = [];
+    var _items = [];
+
+    var _btnFullScreen;
+    var _btnWindow;
+    var _btn1920;
+    var _btn1600;
+    var _btn1280;
+    var _btnPortraitOn;
+    var _btnPortraitOff;
+    var _btnReadColorOn;
+    var _btnReadColorOff;
+    var _btnEffectOn;
+    var _btnEffectOff;
+    var _btnFont = [];
+
+    var _opacitySlider;
+    var _previewTextbox;
+    var _previewText;
+    var _portraitPreview;
+    var _visible = false;
+    var _portraitVisible = true;
+
+    function ConfigScreenPage(win, root, owner)
+    {
+        _window = win;
+        _root = root;
+        _owner = owner;
+        build();
+    }
+
+    function finalize()
+    {
+        for(var i = 0; i < _buttons.count; i++) invalidate _buttons[i];
+        _buttons.clear();
+
+        for(var i = 0; i < _layers.count; i++) invalidate _layers[i];
+        _layers.clear();
+
+        invalidate _opacitySlider;
+        _items.clear();
+    }
+
+    function setVisible(v)
+    {
+        _visible = v;
+        for(var i = 0; i < _items.count; i++) _items[i].visible = v;
+        updatePortraitPreviewVisible();
+    }
+
+    function setPortraitVisible(v)
+    {
+        _portraitVisible = v;
+        updatePortraitPreviewVisible();
+    }
+
+    function updatePortraitPreviewVisible()
+    {
+        if(_portraitPreview !== void)
+            _portraitPreview.visible = _visible && _portraitVisible;
+    }
+
+    function build()
+    {
+        var layerStart = _layers.count;
+        var buttonStart = _buttons.count;
+
+        _owner.makeImageBackground(HD_GRAPHIC_ROOT + "bg.png", 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, this);
+
+        _btnFullScreen = _owner.makeImageTabButton(HD_GRAPHIC_ROOT + "fullscreen1.png", HD_GRAPHIC_ROOT + "fullscreen2.png", 395, 340, false, 0, -1, 0, 0, 0, this);
+        _btnWindow = _owner.makeImageTabButton(HD_GRAPHIC_ROOT + "window1.png", HD_GRAPHIC_ROOT + "window2.png", 665, 340, false, 0, -1, 0, 0, 0, this);
+
+        _btn1920 = _owner.makeImageTabButton(HD_GRAPHIC_ROOT + "1080p1.png", HD_GRAPHIC_ROOT + "1080p2.png", 255, 462, false, 0, -1, 0, 0, 0, this);
+        _btn1600 = _owner.makeImageTabButton(HD_GRAPHIC_ROOT + "900p1.png", HD_GRAPHIC_ROOT + "900p2.png", 492, 462, false, 0, -1, 0, 0, 0, this);
+        _btn1280 = _owner.makeImageTabButton(HD_GRAPHIC_ROOT + "720p1.png", HD_GRAPHIC_ROOT + "720p2.png", 725, 462, false, 0, -1, 0, 0, 0, this);
+
+        _opacitySlider = _owner.makeImageSlider(
+            HD_SLIDER_KNOB_STORAGE,
+            390, 602,
+            560, 8,
+            100,
+            100,
+            this
+        );
+        var fonts = HD_SCREEN_FONT_BUTTONS;
+        for(var i = 0; i < fonts.count; i++)
+        {
+            var item = fonts[i];
+            _btnFont[i] = _owner.makeImageTabButton(
+                HD_GRAPHIC_ROOT + item.normalFile,
+                HD_GRAPHIC_ROOT + item.selectedFile,
+                item.x, item.y, false,
+                item.normalWidth, item.hoverX, item.hoverWidth,
+                item.selectedOffsetX, 0,
+                this
+            );
+        }
+
+        _owner.makeImageTabButton(HD_GRAPHIC_ROOT + "chinese1.png", HD_GRAPHIC_ROOT + "chinese2.png", 1098, 405, true, 0, -1, 0, 0, 0, this);
+        var btnJapanese = _owner.makeImageTabButton(HD_GRAPHIC_ROOT + "japanese1.png", HD_GRAPHIC_ROOT + "janpanese2.png", 1098, 515, false, 0, -1, 0, 0, 0, this);
+        btnJapanese.valid = false;
+
+        _previewTextbox = _owner.makeImage(HD_GRAPHIC_ROOT + "textbox.png", 1321, 524, this);
+        _portraitPreview = _owner.makeImage(HD_GRAPHIC_ROOT + "avatar.png", 1320, 519, this);
+        
+        _previewText = new MessageArea(_window, _root, true, global.GetFontFace);
+        with(_previewText)
+        {
+            .setSize(405, 58);
+            .setPos(1455, 545);
+            .setMargin(0, 0, 405, 58);
+            .setDefaultFontStyle(ADV_FONT_MESS_FACE, ADV_FONT_MESS_SIZE, ADV_FONT_MESS_INDENT, true);
+            .resetFontStyle();
+            .visible = true;
+        }
+        _layers.add(_previewText);
+
+        _btnPortraitOn = _owner.makeGraphicOnButton(1137, 730, this);
+        _btnPortraitOff = _owner.makeGraphicOffButton(1140, 805, this);
+        _btnReadColorOn = _owner.makeGraphicOnButton(1506, 730, this);
+        _btnReadColorOff = _owner.makeGraphicOffButton(1509, 805, this);
+        _btnEffectOn = _owner.makeGraphicOnButton(1736, 730, this);
+        _btnEffectOff = _owner.makeGraphicOffButton(1739, 805, this);
+
+        collectPageItems(_items, layerStart, buttonStart);
+        _items.add(_opacitySlider);
+    }
+
+    function collectPageItems(target, layerStart, buttonStart)
+    {
+        for(var i = layerStart; i < _layers.count; i++) target.add(_layers[i]);
+        for(var i = buttonStart; i < _buttons.count; i++) target.add(_buttons[i]);
+    }
+
+    function syncFromConfig()
+    {
+        _btnFullScreen.selected = _window.fullScreen;
+        _btnWindow.selected = !_window.fullScreen;
+
+        var ww = _window.innerWidth;
+        _btn1920.selected = ww >= HD_WINDOW_SELECT_1080P_MIN;
+        _btn1600.selected = ww >= HD_WINDOW_SELECT_900P_MIN && ww < HD_WINDOW_SELECT_1080P_MIN;
+        _btn1280.selected = ww < HD_WINDOW_SELECT_900P_MIN;
+
+        _opacitySlider.trim = CONFIG.windowDepth;
+
+        for(var i = 0; i < _btnFont.count; i++)
+            _btnFont[i].selected = (CONFIG.fontType == HD_FONT_TYPE_MAP[i]);
+
+        _btnReadColorOn.selected = CONFIG.readMessColor ? true : false;
+        _btnReadColorOff.selected = CONFIG.readMessColor ? false : true;
+        _btnEffectOn.selected = CONFIG.screenEffect ? true : false;
+        _btnEffectOff.selected = CONFIG.screenEffect ? false : true;
+        _btnPortraitOn.selected = _portraitVisible;
+        _btnPortraitOff.selected = !_portraitVisible;
+
+        updatePortraitPreviewVisible();
+        refreshPreview();
+    }
+
+    function refreshPreview()
+    {
+        if(_previewTextbox === void || _previewText === void) return;
+
+        _previewTextbox.opacity = (255 * CONFIG.windowDepth) \ 100;
+
+        with(_previewText)
+        {
+            .flush(false);
+            .clear();
+            if(CONFIG.readMessColor)
+                .setDefaultDrawTextParam(RGB(230, 245, 255), 255, true, 3002, RGB(0, 0, 0), 1, 1, 2);
+            else
+                .setDefaultDrawTextParam(RGB(230, 245, 255), 255, true, 3002, RGB(0, 0, 0), 1, 0, 0);
+            .resetDrawTextParam();
+            .resetFontStyle();
+            .output("这是已读文本显示效果。", true);
+        }
+    }
+
+    function handleButton(target)
+    {
+        if(target == _btnFullScreen)
+        {
+            if(!_window.fullScreen && _window.isChangeScreenModeEnable())
+                _window.changeScreenMode(true);
+            return true;
+        }
+        else if(target == _btnWindow)
+        {
+            if(_window.fullScreen && _window.isChangeScreenModeEnable())
+                _window.changeScreenMode(false);
+            return true;
+        }
+        else if(target == _btn1920)
+        {
+            _owner.applyWindowWidth(HD_WINDOW_WIDTH_1080P);
+            return true;
+        }
+        else if(target == _btn1600)
+        {
+            _owner.applyWindowWidth(HD_WINDOW_WIDTH_900P);
+            return true;
+        }
+        else if(target == _btn1280)
+        {
+            _owner.applyWindowWidth(HD_WINDOW_WIDTH_720P);
+            return true;
+        }
+        else if(target == _btnPortraitOn)
+        {
+            setPortraitVisible(true);
+            return true;
+        }
+        else if(target == _btnPortraitOff)
+        {
+            setPortraitVisible(false);
+            return true;
+        }
+        else if(target == _btnReadColorOn)
+        {
+            CONFIG.readMessColor = 1;
+            return true;
+        }
+        else if(target == _btnReadColorOff)
+        {
+            CONFIG.readMessColor = 0;
+            return true;
+        }
+        else if(target == _btnEffectOn)
+        {
+            CONFIG.screenEffect = 1;
+            return true;
+        }
+        else if(target == _btnEffectOff)
+        {
+            CONFIG.screenEffect = 0;
+            return true;
+        }
+
+        for(var i = 0; i < _btnFont.count; i++)
+        {
+            if(target == _btnFont[i])
+            {
+                CONFIG.fontType = HD_FONT_TYPE_MAP[i];
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function onSliderMove(target)
+    {
+        if(target == _opacitySlider)
+        {
+            CONFIG.windowDepth = _opacitySlider.trim;
+            if(_owner._adv) _owner._adv._msg.windowDepth((255 * CONFIG.windowDepth) \ 100);
+            refreshPreview();
+            return true;
+        }
+        return false;
+    }
+}

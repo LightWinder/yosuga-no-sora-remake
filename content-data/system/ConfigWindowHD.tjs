@@ -1,0 +1,691 @@
+class ConfigWindowHD2 extends SettingWindowBase
+{
+    var _adv = null;
+    var _root;
+
+    var _currentPage = 0;
+
+    var _tabScreen;
+    var _tabSystem;
+    var _tabAudio;
+
+    var _btnResetSetting;
+    var _btnResetText;
+    var _btnKey;
+    var _btnTitle;
+    var _btnClose;
+
+    var _screenPage;
+    var _systemPage;
+    var _audioPage;
+
+    var _keyPopup;
+    var _sampleSound;
+    var _activeControl = null;
+    var _frameBg;
+
+    function ConfigWindowHD2(win, par, adv=null, fShowReturnMenu=0, fShowEnd=0)
+    {
+        super.SettingWindowBase(win, par, true);
+
+        _adv = adv;
+        setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+        setPos(0, 0);
+        absolute = LAYER_CONFIG;
+        hitThreshold = 0;
+
+        _root = new global.SelectItemGroupSprite(window, this, this);
+        with(_root)
+        {
+            .setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+            .setPos(0, 0);
+            .visible = true;
+        }
+        _sampleSound = new WaveSoundBuffer(null);
+
+        buildFrameBackground();
+
+        _screenPage = new ConfigScreenPage(win, _root, this);
+        _systemPage = new ConfigSystemPage(win, _root, this);
+        _audioPage = new ConfigAudioPage(win, _root, this);
+
+        buildHeader();
+        buildFooter();
+        setPage(0);
+        syncFromConfig();
+
+        visible = true;
+    }
+
+    function finalize()
+    {
+        SaveSystemRegister();
+
+        invalidate _screenPage;
+        invalidate _systemPage;
+        invalidate _audioPage;
+
+        invalidate _tabScreen;
+        invalidate _tabSystem;
+        invalidate _tabAudio;
+        invalidate _btnResetSetting;
+        invalidate _btnResetText;
+        invalidate _btnKey;
+        invalidate _btnTitle;
+        invalidate _btnClose;
+        invalidate _keyPopup;
+
+        if(_frameBg !== void) invalidate _frameBg;
+
+        if(_sampleSound !== null)
+        {
+            _sampleSound.stop();
+            invalidate _sampleSound;
+        }
+        invalidate _root;
+        _adv = null;
+
+        super.finalize();
+    }
+
+    // --- View Builders ---
+
+    function buildFrameBackground()
+    {
+        var storage = HD_SETTINGS_ROOT + "bg.png";
+        if(!Storages.isExistentStorage(storage)) return;
+
+        var src = new global.Layer(window, _root);
+        src.loadImages(storage);
+        src.setSizeToImageSize();
+        if(src.width <= 0 || src.height <= 0)
+        {
+            invalidate src;
+            return;
+        }
+
+        _frameBg = makeLayer(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, 0x00000000, _root);
+        _frameBg.hitThreshold = 0;
+        _frameBg.stretchCopy(
+            0, 0, WINDOW_WIDTH, WINDOW_HEIGHT,
+            src, 0, 0, src.width, src.height,
+            stFastLinear
+        );
+        invalidate src;
+    }
+
+    function makeLayer(x, y, w, h, color, parent=null)
+    {
+        if(parent === null) parent = _root;
+        var layer = new global.Layer(window, parent);
+        with(layer)
+        {
+            .setImageSize(w, h);
+            .setSize(w, h);
+            .fillRect(0, 0, w, h, color);
+            .setPos(x, y);
+            .hitThreshold = 256;
+            .visible = true;
+        }
+        return layer;
+    }
+
+    function makeImage(storage, x, y, pageTarget)
+    {
+        var layer = new global.Layer(window, _root);
+        layer.loadImages(storage);
+        layer.setSizeToImageSize();
+        layer.setPos(x, y);
+        layer.hitThreshold = 256;
+        layer.visible = true;
+        pageTarget._layers.add(layer);
+        return layer;
+    }
+
+    function makeImageTabButton(normalHoverStorage, selectedStorage, x, y, selected=false,
+                                normalWidth=0, hoverSourceX=-1, hoverWidth=0,
+                                selectedOffsetX=0, selectedOffsetY=0, pageTarget=null)
+    {
+        var btn = new HDToggleDualButton(window, _root);
+        btn.create(normalHoverStorage, selectedStorage, normalWidth, hoverSourceX, hoverWidth,
+                   selectedOffsetX, selectedOffsetY);
+        btn.setPos(x, y);
+        btn.selected = selected;
+        addChainItem(btn);
+
+        if (pageTarget !== null) pageTarget._buttons.add(btn);
+        return btn;
+    }
+
+    function makeImageStripButton(storage, x, y, stateCount=2, firstStateWidth=0, pageTarget=null)
+    {
+        var btn = new HDStripButton(window, _root);
+        btn.create(storage, stateCount, firstStateWidth);
+        btn.setPos(x, y);
+        addChainItem(btn);
+
+        if (pageTarget !== null) pageTarget._buttons.add(btn);
+        return btn;
+    }
+
+    function makeCheckboxButton(storage, x, y, pageTarget)
+    {
+        var btn = new HDCheckboxButton(window, _root);
+        btn.create(storage);
+        btn.setPos(x, y);
+        addChainItem(btn);
+
+        pageTarget._buttons.add(btn);
+        return btn;
+    }
+
+    function makeImageChoiceButton(storage, x, y, pageTarget)
+    {
+        var btn = new HDToggleStripButton(window, _root);
+        btn.create(storage);
+        btn.setPos(x, y);
+        addChainItem(btn);
+
+        pageTarget._buttons.add(btn);
+        return btn;
+    }
+
+    function makeGraphicOnButton(x, y, pageTarget)
+    {
+        return makeImageTabButton(
+            HD_ON_NORMAL_STORAGE, HD_ON_SELECTED_STORAGE,
+            x, y, false,
+            HD_ON_NORMAL_WIDTH, HD_ON_HOVER_SOURCE_X, HD_ON_HOVER_WIDTH,
+            HD_ON_SELECTED_OFFSET_X, 0, pageTarget
+        );
+    }
+
+    function makeGraphicOffButton(x, y, pageTarget)
+    {
+        return makeImageTabButton(
+            HD_OFF_NORMAL_STORAGE, HD_OFF_SELECTED_STORAGE,
+            x, y, false,
+            HD_OFF_NORMAL_WIDTH, HD_OFF_HOVER_SOURCE_X, HD_OFF_HOVER_WIDTH,
+            HD_OFF_SELECTED_OFFSET_X, 0, pageTarget
+        );
+    }
+
+    function makeImageBackground(storage, x, y, w, h, pageTarget)
+    {
+        if(!Storages.isExistentStorage(storage)) return null;
+
+        var src = new global.Layer(window, _root);
+        src.loadImages(storage);
+        src.setSizeToImageSize();
+        if(src.width <= 0 || src.height <= 0)
+        {
+            invalidate src;
+            return null;
+        }
+
+        var bg = makeLayer(x, y, w, h, 0x00000000, _root);
+
+        bg.stretchCopy(
+            0, 0, w, h,
+            src,
+            0, 0, src.width, src.height,
+            stFastLinear
+        );
+
+        invalidate src;
+        pageTarget._layers.add(bg);
+        return bg;
+    }
+
+    function makeImageSlider(knobStorage, trackX, trackY, trackW, trackH, maxValue, knobScale=100, pageTarget=null)
+    {
+        var sourceKnob = new global.Layer(window, _root);
+        sourceKnob.loadImages(knobStorage);
+        sourceKnob.setSizeToImageSize();
+
+        var stateCount = 3;
+        var sourceKnobW = sourceKnob.width \ stateCount;
+        var sourceKnobH = sourceKnob.height;
+        var knobW = (sourceKnobW * knobScale + 50) \ 100;
+        var knobH = (sourceKnobH * knobScale + 50) \ 100;
+
+        var knob = sourceKnob;
+        if(knobScale != 100)
+        {
+            knob = new global.Layer(window, _root);
+            knob.setImageSize(knobW * stateCount, knobH);
+            knob.fillRect(0, 0, knob.imageWidth, knob.imageHeight, 0x00000000);
+            for(var i = 0; i < stateCount; i++)
+                knob.stretchCopy(
+                    knobW * i, 0, knobW, knobH,
+                    sourceKnob,
+                    sourceKnobW * i, 0, sourceKnobW, sourceKnobH,
+                    stFastLinear
+                );
+        }
+
+        var slider = new SliderH(window, _root);
+        slider.create(knob, trackW, knobW, stateCount, maxValue);
+
+        slider.setPos(trackX, trackY + trackH \ 2 - knobH \ 2);
+        slider.visible = true;
+
+        addChainItem(slider);
+        invalidate knob;
+        if(knob !== sourceKnob) invalidate sourceKnob;
+
+        return slider;
+    }
+
+    function makeTrapezoidSlider(knobStorage, leftX, leftY, rightX, rightY, maxValue,
+                                 minKnobScale=100, maxKnobScale=130, pageTarget=null)
+    {
+        var slider = new HDTrapezoidSlider(window, _root);
+        slider.create(knobStorage, leftX, leftY, rightX, rightY, maxValue, minKnobScale, maxKnobScale);
+        slider.visible = true;
+        addChainItem(slider);
+        return slider;
+    }
+
+    function makeHorizontalTrapezoidSlider(knobStorage, trackX, trackY, trackW, trackH, maxValue,
+                                           minKnobScale=100, maxKnobScale=130, pageTarget=null)
+    {
+        var centerY = trackY + (trackH \ 2);
+        return makeTrapezoidSlider(
+            knobStorage,
+            trackX, centerY,
+            trackX + trackW, centerY,
+            maxValue,
+            minKnobScale, maxKnobScale, pageTarget
+        );
+    }
+
+    function buildHeader()
+    {
+        _tabScreen = makeImageTabButton(
+            HD_SETTINGS_ROOT + "graphics1.png",
+            HD_SETTINGS_ROOT + "graphics2.png",
+            1165, 190,
+            true
+        );
+
+        _tabSystem = makeImageTabButton(
+            HD_SETTINGS_ROOT + "systems1.png",
+            HD_SETTINGS_ROOT + "systems2.png",
+            1370, 190,
+            false
+        );
+
+        _tabAudio = makeImageTabButton(
+            HD_SETTINGS_ROOT + "audio1.png",
+            HD_SETTINGS_ROOT + "audio2.png",
+            1565, 190,
+            false
+        );
+    }
+
+    function buildFooter()
+    {
+        _btnResetSetting = makeImageStripButton(HD_SETTINGS_ROOT + "reset_seetting.png", 42, 1037);
+        _btnResetText = makeImageStripButton(HD_SETTINGS_ROOT + "reset_text.png", 245, 1037);
+        _btnKey = makeImageStripButton(HD_SETTINGS_ROOT + "key.png", 520, 1037, 3, 105);
+        _btnTitle = makeImageStripButton(HD_SETTINGS_ROOT + "title.png", 1268, 995);
+        _btnClose = makeImageStripButton(HD_SETTINGS_ROOT + "continue.png", 1607, 995, 3);
+
+        _keyPopup = new HDKeyPopup(window, _root, this);
+        _keyPopup.create(HD_SETTINGS_ROOT + "key_popup.png");
+    }
+
+    function setPage(page)
+    {
+        if(_keyPopup !== void && _keyPopup.visible) closeKeyPopup();
+
+        _currentPage = page;
+        _activeControl = null;
+        _screenPage.setVisible(page == 0);
+        _systemPage.setVisible(page == 1);
+        _audioPage.setVisible(page == 2);
+
+        _tabScreen.selected = (page == 0);
+        _tabSystem.selected = (page == 1);
+        _tabAudio.selected = (page == 2);
+    }
+
+    function currentPage()
+    {
+        if(_currentPage == 0) return _screenPage;
+        if(_currentPage == 1) return _systemPage;
+        if(_currentPage == 2) return _audioPage;
+        return null;
+    }
+
+    function openKeyPopup() { _keyPopup.visible = true; }
+    function closeKeyPopup() { _keyPopup.visible = false; }
+
+    function syncFromConfig()
+    {
+        _screenPage.syncFromConfig();
+        _systemPage.syncFromConfig();
+        _audioPage.syncFromConfig();
+    }
+
+    // --- Action Handlers ---
+
+    function handleTabButton(target)
+    {
+        if(target == _tabScreen) { setPage(0); return true; }
+        else if(target == _tabSystem) { setPage(1); return true; }
+        else if(target == _tabAudio) { setPage(2); return true; }
+        return false;
+    }
+
+    function handleFooterButton(target)
+    {
+        if(target == _btnResetSetting)
+        {
+            if(CONFIG.confirmWindow[SystemRegister.CONFIRM_DEFAULT])
+                PlaySystemVoice("初期設定に戻す");
+            CallConfirm("要初始化设定吗？", SystemRegister.CONFIRM_DEFAULT, resetSettings, null);
+            return true;
+        }
+        else if(target == _btnResetText)
+        {
+            if(CONFIG.confirmWindow[SystemRegister.CONFIRM_CLEARREADFLAG])
+                PlaySystemVoice("既読情報の初期化");
+            CallConfirm("要初始化已读情报吗？", SystemRegister.CONFIRM_CLEARREADFLAG, clearReadFlags, null);
+            return true;
+        }
+        else if(target == _btnKey)
+        {
+            openKeyPopup();
+            return true;
+        }
+        else if(target == _btnTitle)
+        {
+            if(_adv !== null)
+            {
+                _adv.save("asave.bmp", -2);
+                hide(300, ConfigDelete);
+                _adv.returnTo(SCENE_TITLE);
+                _adv = null;
+                return true;
+            }
+            hide(300, ConfigDelete);
+            return true;
+        }
+        else if(target == _btnClose)
+        {
+            hide(300, ConfigDelete);
+            return true;
+        }
+        return false;
+    }
+
+    function rememberControl(target)
+    {
+        _activeControl = target;
+    }
+
+    function onButtonEnter(target)
+    {
+        rememberControl(target);
+    }
+
+    function onButtonLeave(target) {}
+
+    function onButtonDownL(target)
+    {
+        rememberControl(target);
+        if(handleTabButton(target)) return;
+        if(handleFooterButton(target)) return;
+
+        var page = currentPage();
+        if(page !== null && page.handleButton(target))
+        {
+            syncFromConfig();
+        }
+    }
+
+    function applyToConfig()
+    {
+        syncFromConfig();
+    }
+
+    function resetSettings()
+    {
+        var tempFullScreen = CONFIG.fullScreen;
+        var tempWindowZoom = CONFIG.windowZoom;
+        sysReg.initConfig();
+        CONFIG.fullScreen = tempFullScreen;
+        CONFIG.windowZoom = tempWindowZoom;
+        _screenPage.setPortraitVisible(true);
+
+        if(!window.fullScreen) window.zoom = CONFIG.windowZoom;
+        if(BGM !== null) BGM.volume = CONFIG.volBgm;
+        if(SE !== null) SE.volume = CONFIG.volSe;
+        if(ENVSE !== null) ENVSE.volume = CONFIG.volEnvSe;
+        if(BGV !== null) BGV.volume = CONFIG.volBgv;
+        if(_adv)
+        {
+            if(VOICE !== null) VOICE.volume = CONFIG.volVoice;
+            _adv._msg.windowDepth((255 * CONFIG.windowDepth) \ 100);
+            _adv.routeGuideEnable(CONFIG.routeGuide);
+        }
+
+        applyMasterVolume(BGM);
+        applyMasterVolume(SE);
+        applyMasterVolume(ENVSE);
+        applyMasterVolume(VOICE);
+        applyMasterVolume(BGV);
+        applyVoiceDetailVolume();
+
+        syncFromConfig();
+        SaveSystemRegister();
+    }
+
+    function clearReadFlags()
+    {
+        sysReg.clearReadFlag();
+        SaveSystemRegister();
+    }
+
+    function applyMasterVolume(manager)
+    {
+        if(manager === null) return;
+        var list = manager.idList(false);
+        for(var i = 0; i < list.count; i++)
+        {
+            var obj = manager.objectOfId(list[i].id);
+            if(obj != -1) obj.volume2 = 100000 * CONFIG.volMaster;
+        }
+    }
+
+    function applyVoiceDetailVolume()
+    {
+        if(!_adv || VOICE === null) return;
+        var list = VOICE.idList(false);
+        for(var i = 0; i < list.count; i++)
+        {
+            var id = list[i].id;
+            var vcid = id.substring(0, 2);
+            var detailIndex = VCID_TO_INDEX[vcid];
+            if(detailIndex === void) detailIndex = VCID_TO_INDEX["NP"];
+            var obj = VOICE.objectOfId(id);
+            if(obj != -1) obj.configVolume = CONFIG.voiceDetails[detailIndex].volume;
+        }
+        VOICE.applyVolume();
+    }
+
+    function playVoiceVolumeSample()
+    {
+        if(_sampleSound === null) return;
+
+        var item = _audioPage._voiceItems[_audioPage._selectedVoice];
+        if(item === void) return;
+
+        var file = PlaySystemVoiceIndex("個別音声：ボリューム", item.detailIndex, false);
+        if(file === void || file == "") return;
+
+        _sampleSound.stop();
+        with(_sampleSound)
+        {
+            .open(file + ".ogg");
+            .looping = false;
+            .volume = 100000 * CONFIG.volMaster * CONFIG.volVoice * CONFIG.voiceDetails[item.detailIndex].volume;
+            .play();
+        }
+    }
+
+    function applyWindowWidth(targetWidth)
+    {
+        if(window.fullScreen) return;
+        CONFIG.windowZoom = (targetWidth * WINDOW_ZOOM_PER) \ WINDOW_WIDTH;
+        window.zoom = CONFIG.windowZoom;
+    }
+
+    function onSliderMove(target, key=false)
+    {
+        var page = currentPage();
+        if(page !== null) page.onSliderMove(target);
+    }
+
+    function onSliderMoveStart(target){ onSliderMove(target); }
+    function onSliderMoveEnd(target)
+    {
+        onSliderMove(target);
+        if(target == _audioPage._voiceVolumeSlider) playVoiceVolumeSample();
+    }
+    function onSliderEnter(target)
+    {
+        rememberControl(target);
+    }
+    function onSliderLeave(target) {}
+
+    function isKeyboardSliderH(target)
+    {
+        if(target === null || target === void) return false;
+        if(!target.visible || !target.valid) return false;
+        if(typeof target.kind == "undefined") return false;
+        return target.kind().indexOf("SliderH") != -1;
+    }
+
+    function findEnteredSliderH()
+    {
+        var items = chainItem;
+        for(var i = 0; i < items.count; i++)
+        {
+            if(isKeyboardSliderH(items[i]) && items[i].isEnter())
+                return items[i];
+        }
+        return null;
+    }
+
+    function findCursorSliderH()
+    {
+        if(window.isMouseTracking()) window.flushMouseTracking();
+
+        var items = chainItem;
+        var x = window.primaryLayer.cursorX;
+        var y = window.primaryLayer.cursorY;
+        var pos = new Point();
+
+        for(var i = items.count - 1; i >= 0; i--)
+        {
+            var item = items[i];
+            if(!isKeyboardSliderH(item)) continue;
+
+            pos.set(0, 0, 0);
+            GetAbsolutePos(item, pos, win.baseLayer);
+            if(x >= pos.x && x < pos.x + item.width &&
+               y >= pos.y && y < pos.y + item.height)
+            {
+                invalidate pos;
+                return item;
+            }
+        }
+
+        invalidate pos;
+        return null;
+    }
+
+    function findActiveSliderH()
+    {
+        if(isKeyboardSliderH(_activeControl)) return _activeControl;
+
+        var target = findEnteredSliderH();
+        if(target !== null) return target;
+
+        return findCursorSliderH();
+    }
+
+    function handleSliderKey(key, shift)
+    {
+        if(key != VK_LEFT && key != VK_RIGHT) return false;
+
+        var target = findActiveSliderH();
+        if(target === null) return false;
+
+        var div = (shift & ssShift) ? 10 : 20;
+        var delta = target.range \ div;
+        if(delta <= 0) delta = 1;
+
+        if(key == VK_LEFT) target.trim -= delta;
+        else target.trim += delta;
+
+        rememberControl(target);
+        onSliderMove(target, true);
+        return true;
+    }
+
+    function onButtonDownR(target)
+    {
+        rememberControl(target);
+        onMouseDown(0, 0, mbRight, 0);
+    }
+
+    function onMouseDown(x, y, button, shift)
+    {
+        if(button != mbRight) return;
+        if(_keyPopup.visible)
+        {
+            closeKeyPopup();
+            return;
+        }
+        hide(300, ConfigDelete);
+    }
+
+    function onKeyDown(key, shift)
+    {
+        if(key == VK_ESCAPE && _keyPopup.visible)
+        {
+            closeKeyPopup();
+            return;
+        }
+        if(key == VK_ESCAPE)
+        {
+            hide(300, ConfigDelete);
+            return;
+        }
+        if(!_keyPopup.visible && handleSliderKey(key, shift)) return;
+        super.onKeyDown(...);
+    }
+
+    function action(ev)
+    {
+        if(ev.type == "onChangeScreenMode" || ev.type == "onMoveSizeEnd")
+            syncFromConfig();
+        else
+            super.action(ev);
+    }
+}
+
+function CallConfigHD(adv=null, fShowReturnMenu=0, fShowEnd=0)
+{
+    if(IsAnyWindow()) return false;
+
+    Debug.message("ConfigWindowHD2: CallConfigHD");
+    SPR_CONFIG = new ConfigWindowHD2(win, win.baseLayer, adv, fShowReturnMenu, fShowEnd);
+    SPR_CONFIG.visible = true;
+    SPR_CONFIG.show(300);
+    return true;
+}

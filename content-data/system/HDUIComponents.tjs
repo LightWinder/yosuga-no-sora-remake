@@ -1,0 +1,627 @@
+class HDImageButtonBase extends SelectItemBase
+{
+    function HDImageButtonBase(win, par)
+    {
+        super.SelectItemBase(win, par);
+    }
+
+    function onMouseDown(x, y, button, shift)
+    {
+        releaseCapture();
+        if(button == mbLeft && valid && typeof parent.onButtonDownL != "undefined")
+            parent.onButtonDownL(this);
+        else if(button == mbRight && typeof parent.onButtonDownR != "undefined")
+            parent.onButtonDownR(this);
+    }
+
+    function frameWidth()
+    {
+        if(width > 0) return width;
+        if(_width !== void && _width > 0) return _width;
+        return 0;
+    }
+
+    function setButton(num)
+    {
+        var w = frameWidth();
+        if(w > 0) setImagePos(-(w * num), 0);
+    }
+
+    function onMouseEnter(){ super.onMouseEnter(); if(valid) setButton(1); }
+    function onMouseLeave(){ super.onMouseLeave(); if(valid) setButton(0); }
+    function onValid(){ setButton(0); }
+    function onInvalid(){ setButton(2); }
+}
+
+class HDStripButton extends HDImageButtonBase
+{
+    var _source = null;
+    var _stateCount = 2;
+    var _stateWidth = 0;
+    var _stateHeight = 0;
+    var _normalWidth = 0;
+    var _hoverSourceX = 0;
+    var _hoverWidth = 0;
+
+    function HDStripButton(win, par)
+    {
+        super.HDImageButtonBase(win, par);
+    }
+
+    function create(storage, stateCount=2, firstStateWidth=0)
+    {
+        _stateCount = stateCount;
+        _source = new global.Layer(window, this);
+        _source.loadImages(storage);
+        _source.setSizeToImageSize();
+        _source.visible = false;
+
+        _stateHeight = _source.height;
+        var hoverWidth = 0;
+        if(stateCount == 2 && firstStateWidth > 0)
+        {
+            hoverWidth = _source.width - firstStateWidth;
+            _stateWidth = hoverWidth > firstStateWidth ? hoverWidth : firstStateWidth;
+            _normalWidth = firstStateWidth;
+            _hoverSourceX = firstStateWidth;
+            _hoverWidth = hoverWidth;
+        }
+        else
+        {
+            _stateWidth = _source.width \ _stateCount;
+            _normalWidth = _stateWidth;
+            _hoverSourceX = _stateWidth;
+            _hoverWidth = _stateWidth;
+        }
+
+        setSize(_stateWidth, _stateHeight);
+        setImageSize(_stateWidth * 3, _stateHeight);
+        _width = _stateWidth;
+        redraw();
+        setButton(0);
+        visible = true;
+    }
+
+    function redraw()
+    {
+        fillRect(0, 0, imageWidth, imageHeight, 0x00000000);
+        copyRect(0, 0, _source, 0, 0, _normalWidth, _stateHeight);
+        copyRect(_stateWidth, 0, _source, _hoverSourceX, 0, _hoverWidth, _stateHeight);
+
+        var disableSrcX = _stateCount >= 3 ? _hoverSourceX + _hoverWidth : 0;
+        var disableSrcW = _stateCount >= 3 ? (_source.width - disableSrcX) : _normalWidth;
+        copyRect(_stateWidth * 2, 0, _source, disableSrcX, 0, disableSrcW, _stateHeight);
+    }
+
+    function finalize()
+    {
+        if(_source !== null) invalidate _source;
+        super.finalize();
+    }
+}
+
+class HDToggleButtonBase extends HDImageButtonBase
+{
+    var _selected = false;
+    var _stateWidth = 0;
+    var _stateHeight = 0;
+
+    function HDToggleButtonBase(win, par)
+    {
+        super.HDImageButtonBase(win, par);
+    }
+
+    function drawNormalState() {}
+    function drawSelectedState() {}
+
+    function redraw()
+    {
+        fillRect(0, 0, imageWidth, imageHeight, 0x00000000);
+        if(_selected)
+            drawSelectedState();
+        else
+            drawNormalState();
+    }
+
+    property selected
+    {
+        setter(v)
+        {
+            _selected = v ? true : false;
+            redraw();
+            setButton(0);
+        }
+        getter(){ return _selected; }
+    }
+}
+
+class HDToggleStripButton extends HDToggleButtonBase
+{
+    var _source = null;
+
+    function HDToggleStripButton(win, par)
+    {
+        super.HDToggleButtonBase(win, par);
+    }
+
+    function create(storage)
+    {
+        _source = new global.Layer(window, this);
+        _source.loadImages(storage);
+        _source.setSizeToImageSize();
+        _source.visible = false;
+
+        _stateWidth = _source.width \ 3;
+        _stateHeight = _source.height;
+
+        setSize(_stateWidth, _stateHeight);
+        setImageSize(_stateWidth * 3, _stateHeight);
+        _width = _stateWidth;
+
+        redraw();
+        setButton(0);
+        visible = true;
+    }
+
+    function drawNormalState()
+    {
+        copyRect(0, 0, _source, 0, 0, _stateWidth, _stateHeight);
+        copyRect(_stateWidth, 0, _source, _stateWidth, 0, _stateWidth, _stateHeight);
+        copyRect(_stateWidth * 2, 0, _source, 0, 0, _stateWidth, _stateHeight);
+    }
+
+    function drawSelectedState()
+    {
+        for(var i = 0; i < 3; i++)
+            copyRect(_stateWidth * i, 0, _source, _stateWidth * 2, 0, _stateWidth, _stateHeight);
+    }
+
+    function finalize()
+    {
+        if(_source !== null) invalidate _source;
+        super.finalize();
+    }
+}
+
+class HDToggleDualButton extends HDToggleButtonBase
+{
+    var _source = null;
+    var _selectedImage = null;
+
+    var _normalWidth = 0;
+    var _hoverSourceX = 0;
+    var _hoverWidth = 0;
+    var _selectedOffsetX = 0;
+    var _selectedOffsetY = 0;
+    var _selectedHoverEnabled = true;
+
+    function HDToggleDualButton(win, par)
+    {
+        super.HDToggleButtonBase(win, par);
+    }
+
+    function create(normalHoverStorage, selectedStorage, normalWidth=0, hoverSourceX=-1, hoverWidth=0, selectedOffsetX=0, selectedOffsetY=0)
+    {
+        _selectedHoverEnabled = !global.isHDGraphicNoHoverSelected(selectedStorage);
+
+        _source = new global.Layer(window, this);
+        _source.loadImages(normalHoverStorage);
+        _source.setSizeToImageSize();
+        _source.visible = false;
+
+        _selectedImage = new global.Layer(window, this);
+        _selectedImage.loadImages(selectedStorage);
+        _selectedImage.setSizeToImageSize();
+        _selectedImage.visible = false;
+
+        _normalWidth = normalWidth > 0 ? normalWidth : (_source.width \ 2);
+        _hoverSourceX = hoverSourceX >= 0 ? hoverSourceX : _normalWidth;
+        _hoverWidth = hoverWidth > 0 ? hoverWidth : (_source.width - _hoverSourceX);
+        _selectedOffsetX = selectedOffsetX;
+        _selectedOffsetY = selectedOffsetY;
+
+        _stateWidth = _normalWidth > _hoverWidth ? _normalWidth : _hoverWidth;
+        _stateHeight = _source.height;
+
+        if(_selectedImage.width > _stateWidth) _stateWidth = _selectedImage.width;
+        if(_selectedImage.height > _stateHeight) _stateHeight = _selectedImage.height;
+
+        var paddingX = _selectedOffsetX < 0 ? -_selectedOffsetX : _selectedOffsetX;
+        var paddingY = _selectedOffsetY < 0 ? -_selectedOffsetY : _selectedOffsetY;
+        _stateWidth += paddingX * 2;
+        _stateHeight += paddingY * 2;
+
+        setSize(_stateWidth, _stateHeight);
+        setImageSize(_stateWidth * 3, _stateHeight);
+        _width = _stateWidth;
+
+        redraw();
+        setButton(0);
+        visible = true;
+    }
+
+    function onMouseEnter()
+    {
+        super.onMouseEnter();
+        if(_selected && !_selectedHoverEnabled) setButton(0);
+    }
+
+    function drawNormalState()
+    {
+        var normalH = _source.height;
+        var normalX = (_stateWidth - _normalWidth) \ 2;
+        var hoverX = (_stateWidth - _hoverWidth) \ 2;
+        var normalY = (_stateHeight - normalH) \ 2;
+
+        copyRect(normalX, normalY, _source, 0, 0, _normalWidth, normalH);
+        copyRect(_stateWidth + hoverX, normalY, _source, _hoverSourceX, 0, _hoverWidth, normalH);
+        copyRect(_stateWidth * 2 + normalX, normalY, _source, 0, 0, _normalWidth, normalH);
+    }
+
+    function drawSelectedState()
+    {
+        var selectedX = (_stateWidth - _selectedImage.width) \ 2 + _selectedOffsetX;
+        var selectedY = (_stateHeight - _selectedImage.height) \ 2 + _selectedOffsetY;
+
+        for(var i = 0; i < 3; i++)
+        {
+            copyRect(
+                _stateWidth * i + selectedX, selectedY,
+                _selectedImage,
+                0, 0, _selectedImage.width, _selectedImage.height
+            );
+        }
+    }
+
+    function finalize()
+    {
+        if(_source !== null) invalidate _source;
+        if(_selectedImage !== null) invalidate _selectedImage;
+        super.finalize();
+    }
+}
+
+class HDCheckboxButton extends HDImageButtonBase
+{
+    var _source;
+    var _selected = false;
+    var _stateWidth = 0;
+    var _stateHeight = 0;
+    var _offWidth = 0;
+    var _onWidth = 0;
+    var _checkedOffsetX = 3;
+
+    function HDCheckboxButton(win, par)
+    {
+        super.HDImageButtonBase(win, par);
+    }
+
+    function create(storage)
+    {
+        _source = new global.Layer(window, this);
+        _source.loadImages(storage);
+        _source.setSizeToImageSize();
+        _source.visible = false;
+
+        _stateHeight = _source.height;
+        _offWidth = _stateHeight;
+        _onWidth = (_source.width - _offWidth * 2) \ 2;
+        _stateWidth = _onWidth + _checkedOffsetX;
+        setSize(_stateWidth, _stateHeight);
+        setImageSize(_stateWidth * 3, _stateHeight);
+        _width = _stateWidth;
+        redraw();
+        setButton(0);
+        visible = true;
+    }
+
+    function redraw()
+    {
+        fillRect(0, 0, imageWidth, imageHeight, 0x00000000);
+        var sourceX = _selected ? _offWidth * 2 : 0;
+        var sourceW = _selected ? _onWidth : _offWidth;
+        var targetX = _selected ? _checkedOffsetX : ((_onWidth - _offWidth) \ 2);
+        copyRect(targetX, 0, _source, sourceX, 0, sourceW, _stateHeight);
+        copyRect(_stateWidth + targetX, 0, _source, sourceX + sourceW, 0, sourceW, _stateHeight);
+        copyRect(_stateWidth * 2 + targetX, 0, _source, sourceX, 0, sourceW, _stateHeight);
+    }
+
+    function finalize()
+    {
+        invalidate _source;
+        super.finalize();
+    }
+
+    property selected
+    {
+        setter(v)
+        {
+            _selected = v ? true : false;
+            redraw();
+            setButton(0);
+        }
+        getter(){ return _selected; }
+    }
+}
+
+class HDKeyPopup extends Layer
+{
+    var _owner;
+    var _source;
+
+    function HDKeyPopup(win, par, owner)
+    {
+        super.Layer(win, par);
+        _owner = owner;
+    }
+
+    function create(storage)
+    {
+        setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+        setImageSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+        fillRect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, 0x00000000);
+
+        _source = new global.Layer(window, this);
+        _source.loadImages(storage);
+        _source.setSizeToImageSize();
+        _source.visible = false;
+
+        copyRect(568, 191, _source, 0, 0, _source.width, _source.height);
+        setPos(0, 0);
+        hitThreshold = 0;
+        visible = false;
+    }
+
+    function finalize()
+    {
+        invalidate _source;
+        _owner = null;
+        super.finalize();
+    }
+
+    function onMouseDown(x, y, button, shift)
+    {
+        releaseCapture();
+        if(button == mbRight) _owner.closeKeyPopup();
+    }
+}
+
+class HDTrapezoidSlider extends SelectItemBase
+{
+    var _visual;
+    var _sourceKnob;
+    var _stateCount = 3;
+    var _sourceKnobW = 0;
+    var _sourceKnobH = 0;
+    var _leftX = 0;
+    var _leftY = 0;
+    var _rightX = 0;
+    var _rightY = 0;
+    var _valueRange = 100;
+    var _value = 0;
+    var _hdDragging = false;
+    var _hover = false;
+    var _minScale = 100;
+    var _maxScale = 130;
+    var _maxKnobW = 0;
+    var _maxKnobH = 0;
+    var _showGuide = false;
+
+    function HDTrapezoidSlider(win, par)
+    {
+        super.SelectItemBase(win, par);
+        hasImage = false;
+    }
+
+    function kind(){ return "SliderH"; }
+
+    function create(knobStorage, leftX, leftY, rightX, rightY, range=100, minScale=100, maxScale=130)
+    {
+        _valueRange = range;
+        _minScale = minScale;
+        _maxScale = maxScale;
+
+        _sourceKnob = new global.Layer(window, this);
+        _sourceKnob.loadImages(knobStorage);
+        _sourceKnob.setSizeToImageSize();
+        _sourceKnob.visible = false;
+
+        _sourceKnobW = _sourceKnob.width \ _stateCount;
+        _sourceKnobH = _sourceKnob.height;
+        _maxKnobW = (_sourceKnobW * _maxScale + 50) \ 100;
+        _maxKnobH = (_sourceKnobH * _maxScale + 50) \ 100;
+
+        var minX = leftX < rightX ? leftX : rightX;
+        var maxX = leftX > rightX ? leftX : rightX;
+        var minY = leftY < rightY ? leftY : rightY;
+        var maxY = leftY > rightY ? leftY : rightY;
+        var marginX = ((_maxKnobW + 1) \ 2) + 2;
+        var marginY = ((_maxKnobH + 1) \ 2) + 2;
+
+        setPos(minX - marginX, minY - marginY);
+        setSize((maxX - minX) + marginX * 2, (maxY - minY) + marginY * 2);
+        _width = width;
+        _height = height;
+        hitThreshold = 0;
+
+        var visualW = width;
+        var visualH = height;
+        // Keep the focusable layer image-less like SliderH; this child only paints.
+        _visual = new global.Layer(window, this);
+        with(_visual)
+        {
+            .setPos(0, 0);
+            .setSize(visualW, visualH);
+            .setImageSize(visualW, visualH);
+            .hitThreshold = 256;
+            .visible = true;
+        }
+
+        _leftX = leftX - left;
+        _leftY = leftY - top;
+        _rightX = rightX - left;
+        _rightY = rightY - top;
+
+        redrawKnob();
+        visible = true;
+    }
+
+    function finalize()
+    {
+        if(_visual !== void) invalidate _visual;
+        invalidate _sourceKnob;
+        super.finalize();
+    }
+
+    function redrawBase()
+    {
+        if(_visual === void) return;
+        _visual.fillRect(0, 0, _visual.imageWidth, _visual.imageHeight, 0x00000000);
+        drawGuide();
+    }
+
+    function drawGuide()
+    {
+        if(!_showGuide || _visual === void) return;
+
+        for(var i = 0; i <= 100; i++)
+        {
+            var x = _leftX + ((_rightX - _leftX) * i) \ 100;
+            var y = _leftY + ((_rightY - _leftY) * i) \ 100;
+            _visual.fillRect(x - 1, y - 1, 3, 3, 0xffff4040);
+        }
+
+        _visual.fillRect(_leftX - 1, _leftY - 8, 3, 17, 0xffffff00);
+        _visual.fillRect(_rightX - 1, _rightY - 8, 3, 17, 0xffffff00);
+    }
+
+    function clampTrim(v)
+    {
+        if(v < 0) return 0;
+        if(v > _valueRange) return _valueRange;
+        return int(v);
+    }
+
+    function trimFromX(x)
+    {
+        var w = _rightX - _leftX;
+        if(w == 0) return 0;
+        return clampTrim(((x - _leftX) * _valueRange + (w \ 2)) \ w);
+    }
+
+    function scaleForTrim()
+    {
+        if(_valueRange == 0) return _minScale;
+        return _minScale + ((_maxScale - _minScale) * _value) \ _valueRange;
+    }
+
+    function redrawKnob()
+    {
+        if(_visual === void || _sourceKnob === void) return;
+
+        var scale = scaleForTrim();
+        var knobW = (_sourceKnobW * scale + 50) \ 100;
+        var knobH = (_sourceKnobH * scale + 50) \ 100;
+        var state = valid ? (_hover ? 1 : 0) : 2;
+        if(state >= _stateCount) state = 0;
+
+        var cx = _valueRange == 0 ? _leftX : _leftX + ((_rightX - _leftX) * _value) \ _valueRange;
+        var cy = _valueRange == 0 ? _leftY : _leftY + ((_rightY - _leftY) * _value) \ _valueRange;
+
+        redrawBase();
+        _visual.stretchCopy(
+            cx - (knobW \ 2), cy - (knobH \ 2), knobW, knobH,
+            _sourceKnob,
+            _sourceKnobW * state, 0, _sourceKnobW, _sourceKnobH,
+            stFastLinear
+        );
+    }
+
+    function startDragAt(x)
+    {
+        if(!valid) return;
+        _hdDragging = true;
+        trim = trimFromX(x);
+        parent.onSliderMoveStart(this);
+    }
+
+    function dragAt(x)
+    {
+        if(!valid || !_hdDragging) return;
+        trim = trimFromX(x);
+        parent.onSliderMove(this);
+    }
+
+    function endDrag()
+    {
+        if(!valid) return;
+        if(_hdDragging) parent.onSliderMoveEnd(this);
+        _hdDragging = false;
+    }
+
+    function onMouseDown(x, y, button, shift)
+    {
+        if(!valid) return;
+        if(button !== mbLeft && button !== mbRight) return;
+        if(button == mbLeft) startDragAt(x);
+        else if(button == mbRight)
+        {
+            if(typeof parent.onButtonDownR != "undefined")
+                parent.onButtonDownR(this);
+        }
+    }
+
+    function onMouseUp(x, y, button, shift)
+    {
+        if(!valid) return;
+        if(button == mbLeft) endDrag();
+    }
+
+    function onMouseMove(x, y, shift)
+    {
+        dragAt(x);
+    }
+
+    function onMouseEnter()
+    {
+        if(!valid) return;
+        super.onMouseEnter();
+        _hover = true;
+        redrawKnob();
+        parent.onSliderEnter(this);
+        cursor = crSizeWE;
+    }
+
+    function onMouseLeave()
+    {
+        if(!valid) return;
+        super.onMouseLeave();
+        _hover = false;
+        redrawKnob();
+        parent.onSliderLeave(this);
+        cursor = crDefault;
+    }
+
+    function onValid(){ redrawKnob(); }
+    function onInvalid(){ redrawKnob(); }
+
+    property trim
+    {
+        setter(v)
+        {
+            _value = clampTrim(v);
+            redrawKnob();
+        }
+        getter(){ return _value; }
+    }
+
+    property range
+    {
+        setter(v)
+        {
+            _valueRange = v;
+            trim = _value;
+        }
+        getter(){ return _valueRange; }
+    }
+}
