@@ -246,7 +246,9 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 	var FAV_VOICE_X = TEXT_SETTINGS_X + 40;
 	var FAV_VOICE_Y = VOICE_Y;
 	var FAV_VOICE_FILE = "ui_1920/adv_menu/WBJL-14.png";
-	var FAV_VOICE_PTN = 1;
+	var FAV_VOICE_PTN = 2;
+	var FAV_VOICE_NORMAL_PTN = 0;	// 白色
+	var FAV_VOICE_FOCUS_PTN = 1;	// 灰色
 
 	var	CLOSE_X = BASE_X + FRAME_WIDTH - 47;	// 关闭按钮 X
 	var	CLOSE_Y = BASE_Y + 10;		// 关闭按钮 Y
@@ -400,6 +402,9 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		_btn[_btnFavVoice] = new Button(win, _base);
 		with(_btn[_btnFavVoice]){
 			.create(FAV_VOICE_FILE, FAV_VOICE_PTN);
+			.ptnNormal = FAV_VOICE_NORMAL_PTN;
+			.ptnFocus = FAV_VOICE_FOCUS_PTN;
+			.setButton(FAV_VOICE_NORMAL_PTN);
 			.setPos(FAV_VOICE_X, FAV_VOICE_Y);
 			.visible = false;
 		}
