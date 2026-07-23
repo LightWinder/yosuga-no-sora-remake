@@ -7,6 +7,7 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 	var _list;
 
 	var _btnChar = [];
+	var _grid;
 	var _thumbBase = [];
 	var _btnThumb = [];
 	var _nav;
@@ -22,6 +23,9 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 	var _charVisible = [];
 
 	var _decide = false;
+	var _pageAnimating = false;
+	var _pendingPage = -1;
+	var _pageDirection = 0;
 
 	var UI_ROOT = "ui_1920/appreciation/";
 
@@ -30,8 +34,8 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 	var FRAME_H = 250;
 	var THUMB_W = 416;
 	var THUMB_H = 234;
-	var THUMB_INSET_X = 7;
-	var THUMB_INSET_Y = 8;
+	var THUMB_INSET_X = 2;
+	var THUMB_INSET_Y = 2;
 	var GAP_X = 12;
 	var GAP_Y = 12;
 	var COLS = 4;
@@ -48,9 +52,69 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 	var TAG_Y = 295;
 	var TAG_TO_GRID = 20;
 
+	var PAGE_BUTTON_W = 45;
+	var PAGE_BUTTON_H = 66;
+	var PAGE_BUTTON_MARGIN = 12;
+	var PAGE_SLIDE_DISTANCE = 320;
+	var PAGE_SLIDE_TIME = 240;
+
 	var PREVIEW_NORMAL = 0;
 	var PREVIEW_HOVER = 1;
 	var PREVIEW_LOCKED = 2;
+
+	function createPageButton(button, mirror)
+	{
+		var source = new global.Layer(window, _base);
+		source.loadImages(UI_ROOT + "pgup.png");
+		source.setSizeToImageSize();
+		source.visible = false;
+
+		var sourceX = [39, 84, 129];
+		var sourceW = [45, 45, 40];
+		var atlas = new global.Layer(window, _base);
+		atlas.setImageSize(PAGE_BUTTON_W * 3, PAGE_BUTTON_H);
+		atlas.setSize(PAGE_BUTTON_W * 3, PAGE_BUTTON_H);
+		atlas.fillRect(0, 0, PAGE_BUTTON_W * 3, PAGE_BUTTON_H, 0x00000000);
+		atlas.visible = false;
+
+		for(var i = 0; i < 3; i++)
+		{
+			var cell = new global.Layer(window, _base);
+			cell.setImageSize(PAGE_BUTTON_W, PAGE_BUTTON_H);
+			cell.setSize(PAGE_BUTTON_W, PAGE_BUTTON_H);
+			cell.fillRect(0, 0, PAGE_BUTTON_W, PAGE_BUTTON_H, 0x00000000);
+			var inset = (PAGE_BUTTON_W - sourceW[i]) \ 2;
+			cell.copyRect(inset, 0, source, sourceX[i], 0,
+				sourceW[i], PAGE_BUTTON_H);
+			if(mirror) cell.flipLR();
+			atlas.copyRect(i * PAGE_BUTTON_W, 0, cell, 0, 0,
+				PAGE_BUTTON_W, PAGE_BUTTON_H);
+			invalidate cell;
+		}
+
+		button.create(atlas, 3);
+		invalidate atlas;
+		invalidate source;
+	}
+
+	function clipThumbCorners(dst)
+	{
+		var radius = 20;
+		for(var row = 0; row < radius; row++)
+		{
+			var dy = radius - row - 0.5;
+			var inset = int(radius - Math.sqrt(radius * radius - dy * dy) + 0.999);
+			if(inset <= 0) continue;
+
+			var top = THUMB_INSET_Y + row;
+			var bottom = THUMB_INSET_Y + THUMB_H - 1 - row;
+			var right = THUMB_INSET_X + THUMB_W - inset;
+			dst.fillRect(THUMB_INSET_X, top, inset, 1, 0x00000000);
+			dst.fillRect(right, top, inset, 1, 0x00000000);
+			dst.fillRect(THUMB_INSET_X, bottom, inset, 1, 0x00000000);
+			dst.fillRect(right, bottom, inset, 1, 0x00000000);
+		}
+	}
 
 	// Per-character scene list (from legacy MemoriesModeScene)
 	var _LIST = [
@@ -135,6 +199,17 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 			.hitThreshold = 256;
 		}
 
+		_grid = new global.SelectItemGroupSprite(win, _base, this);
+		with(_grid)
+		{
+			.hasImage = false;
+			.setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+			.setPos(0, 0);
+			.visible = true;
+			.opacity = 255;
+			.hitThreshold = 256;
+		}
+
 		var gridW = COLS * FRAME_W + (COLS - 1) * GAP_X;
 		var gridH = ROWS * FRAME_H + (ROWS - 1) * GAP_Y;
 		var originX = (WINDOW_WIDTH - gridW) \ 2;
@@ -170,7 +245,7 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 			var x = originX + col * (FRAME_W + GAP_X);
 			var y = originY + row * (FRAME_H + GAP_Y);
 
-			_thumbBase[i] = new global.Layer(win, _base);
+			_thumbBase[i] = new global.Layer(win, _grid);
 			with(_thumbBase[i])
 			{
 				.setImageSize(FRAME_W, FRAME_H);
@@ -181,7 +256,7 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 				.hitThreshold = 256;
 			}
 
-			_btnThumb[i] = new Button(win, _base);
+			_btnThumb[i] = new Button(win, _grid);
 			with(_btnThumb[i])
 			{
 				.setImageSize(FRAME_W, FRAME_H);
@@ -194,20 +269,15 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 		}
 
 		_btnPagePrev = new Button(win, _base);
-		_btnPagePrev.create(UI_ROOT + "pgdn.png", 4);
-		_btnPagePrev.ptnNormal = 1;
-		_btnPagePrev.ptnFocus = 0;
-		_btnPagePrev.ptnInvalid = 3;
+		createPageButton(_btnPagePrev, true);
 		_btnPagePrev.hitThreshold = 0;
-		_btnPagePrev.setPos(40, originY + gridH \ 2 - _btnPagePrev.height \ 2);
+		_btnPagePrev.setPos(PAGE_BUTTON_MARGIN,
+			originY + gridH \ 2 - _btnPagePrev.height \ 2);
 
 		_btnPageNext = new Button(win, _base);
-		_btnPageNext.create(UI_ROOT + "pgup.png", 4);
-		_btnPageNext.ptnNormal = 1;
-		_btnPageNext.ptnFocus = 0;
-		_btnPageNext.ptnInvalid = 3;
+		createPageButton(_btnPageNext, false);
 		_btnPageNext.hitThreshold = 0;
-		_btnPageNext.setPos(WINDOW_WIDTH - 40 - _btnPageNext.width,
+		_btnPageNext.setPos(WINDOW_WIDTH - PAGE_BUTTON_MARGIN - _btnPageNext.width,
 			originY + gridH \ 2 - _btnPageNext.height \ 2);
 
 		_nav = new AppreciationBottomNav(win, _base, this, SCENE_MEMORIES);
@@ -233,6 +303,7 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 		InvalidateArray(_btnChar);
 		InvalidateArray(_btnThumb);
 		InvalidateArray(_thumbBase);
+		invalidate _grid;
 		invalidate _btnPagePrev;
 		invalidate _btnPageNext;
 		if(_nav !== void) _nav.finalize();
@@ -266,8 +337,7 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 		if(slot < 0 || slot >= MAX_THUMB) return;
 		if(unlocked)
 		{
-			if(hover) blitPreview(_thumbBase[slot], PREVIEW_HOVER);
-			else blitPreview(_thumbBase[slot], PREVIEW_NORMAL);
+			_thumbBase[slot].fillRect(0, 0, FRAME_W, FRAME_H, 0x00000000);
 
 			var index = _selPage * MAX_THUMB + slot;
 			var tgt = _list[_selChar];
@@ -295,10 +365,15 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 				}
 				catch {}
 			}
+
+			clipThumbCorners(_thumbBase[slot]);
+			if(hover) blitPreview(_btnThumb[slot], PREVIEW_HOVER);
+			else blitPreview(_btnThumb[slot], PREVIEW_NORMAL);
 		}
 		else
 		{
-			blitPreview(_thumbBase[slot], PREVIEW_LOCKED);
+			_thumbBase[slot].fillRect(0, 0, FRAME_W, FRAME_H, 0x00000000);
+			blitPreview(_btnThumb[slot], PREVIEW_LOCKED);
 		}
 	}
 
@@ -321,7 +396,9 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 				continue;
 			}
 			_btnChar[i].visible = true;
-			_btnChar[i].opacity = (i == char) ? 255 : 160;
+			_btnChar[i].ptnNormal = (i == char) ? 1 : 0;
+			_btnChar[i].setButton(_btnChar[i].ptnNormal);
+			_btnChar[i].opacity = (i == char) ? 255 : 190;
 		}
 
 		var tgt = _list[char];
@@ -349,6 +426,39 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 		updatePageButtons();
 	}
 
+	function beginPageSlide(page)
+	{
+		if(_pageAnimating || _decide) return;
+		if(page < 0 || page >= _pageCount[_selChar]) return;
+		if(page == _selPage) return;
+
+		_pageAnimating = true;
+		_pendingPage = page;
+		_pageDirection = (page > _selPage) ? 1 : -1;
+		removeChainItemAll();
+
+		setPage(_selChar, _pendingPage);
+
+		var startX = _pageDirection * PAGE_SLIDE_DISTANCE;
+		_grid.setPos(startX, 0);
+		_grid.opacity = 255;
+		_grid.setTransitionCompleteCall(onPageSlideComplete);
+		_grid.setMovingEnvelope(startX, 0, 0, 0, 2);
+		_grid.beginActivation(PAGE_SLIDE_TIME);
+	}
+
+	function onPageSlideComplete()
+	{
+		_grid.setTransitionCompleteCall();
+		_grid.setPos(0, 0);
+		_grid.opacity = 255;
+		_pendingPage = -1;
+		_pageDirection = 0;
+		_pageAnimating = false;
+		setInput();
+		window.flushMouseTracking();
+	}
+
 	function updatePageButtons()
 	{
 		var pages = _pageCount[_selChar];
@@ -361,7 +471,7 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 	function setInput()
 	{
 		removeChainItemAll();
-		if(_decide) return;
+		if(_decide || _pageAnimating) return;
 
 		var i;
 		for(i = 0; i < _btnChar.count; i++)
@@ -392,12 +502,13 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 
 	function onButtonEnter(target)
 	{
+		if(_pageAnimating) return;
 		var i;
 		for(i = 0; i < MAX_THUMB; i++)
 		{
 			if(target == _btnThumb[i] && _btnThumb[i].valid)
 			{
-				paintThumb(i, true, true);
+				blitPreview(_btnThumb[i], PREVIEW_HOVER);
 				return;
 			}
 		}
@@ -405,12 +516,13 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 
 	function onButtonLeave(target)
 	{
+		if(_pageAnimating) return;
 		var i;
 		for(i = 0; i < MAX_THUMB; i++)
 		{
 			if(target == _btnThumb[i] && _btnThumb[i].valid)
 			{
-				paintThumb(i, true, false);
+				blitPreview(_btnThumb[i], PREVIEW_NORMAL);
 				return;
 			}
 		}
@@ -418,7 +530,7 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 
 	function onButtonDownL(target)
 	{
-		if(_decide) return;
+		if(_decide || _pageAnimating) return;
 
 		var i;
 		for(i = 0; i < _btnChar.count; i++)
@@ -443,12 +555,12 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 
 		if(target == _btnPagePrev)
 		{
-			if(_selPage > 0) setPage(_selChar, _selPage - 1);
+			if(_selPage > 0) beginPageSlide(_selPage - 1);
 			return;
 		}
 		if(target == _btnPageNext)
 		{
-			if(_selPage < _pageCount[_selChar] - 1) setPage(_selChar, _selPage + 1);
+			if(_selPage < _pageCount[_selChar] - 1) beginPageSlide(_selPage + 1);
 			return;
 		}
 		if(_nav !== void && _nav.onButtonDownL(target)) return;
@@ -494,37 +606,38 @@ class MemoriesModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainIt
 
 	function onMouseDown(x, y, button, shift)
 	{
-		if(_decide) return;
+		if(_decide || _pageAnimating) return;
 		if(button == mbRight)
 			changeScene(SCENE_TITLE);
 	}
 
 	function onMouseWheel(shift, delta, x, y)
 	{
-		if(_decide) return;
+		if(_decide || _pageAnimating) return;
 		if(delta < 0)
 		{
-			if(_selPage < _pageCount[_selChar] - 1) setPage(_selChar, _selPage + 1);
+			if(_selPage < _pageCount[_selChar] - 1) beginPageSlide(_selPage + 1);
 		}
 		else if(delta > 0)
 		{
-			if(_selPage > 0) setPage(_selChar, _selPage - 1);
+			if(_selPage > 0) beginPageSlide(_selPage - 1);
 		}
 	}
 
 	function onKeyDown(key, shift)
 	{
-		if(_decide) return;
+		if(_decide || _pageAnimating) return;
 
 		if(key == VK_ESCAPE)
 			changeScene(SCENE_TITLE);
 		else if(key == VK_LEFT || key == VK_PRIOR)
 		{
-			if(_selPage > 0) setPage(_selChar, _selPage - 1);
+			if(_selPage > 0) beginPageSlide(_selPage - 1);
 		}
 		else if(key == VK_RIGHT || key == VK_NEXT)
 		{
-			if(_selPage < _pageCount[_selChar] - 1) setPage(_selChar, _selPage + 1);
+			if(_selPage < _pageCount[_selChar] - 1)
+				beginPageSlide(_selPage + 1);
 		}
 		global.ChainItemBase.onKeyDown(...);
 	}
