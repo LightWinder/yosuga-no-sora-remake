@@ -679,6 +679,30 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		_imgFace.visible = false;
 	}
 
+	function getBuidFromName(name){
+		if(name == "穹") return "CA";
+		if(name == "奈绪") return "CB";
+		if(name == "瑛") return "CC";
+		if(name == "一叶") return "CD";
+		if(name == "初佳") return "CE";
+		if(name == "亮平") return "CF";
+		if(name == "八寻") return "CG";
+		if(name == "梢") return "CH";
+		return "";
+	}
+
+	function getDefaultFace(name){
+		if(name == "穹") return "CA02_01L";
+		if(name == "奈绪") return "CB01_01L";
+		if(name == "瑛") return "CC01_01L";
+		if(name == "一叶") return "CD01_01L";
+		if(name == "初佳") return "CE01_01L";
+		if(name == "亮平") return "CF01_01L";
+		if(name == "八寻") return "CG01_01L";
+		if(name == "梢") return "CH01_01L";
+		return "";
+	}
+
 	function output(name, mess, voice="", pan="", volume="", flush=false, fontParam=null, ignoreKinsoku=false, fRead=false, trueName="", face="", newline=false){
 		// 消除闪烁光标。
 		hideBlink(0);
@@ -692,13 +716,16 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 		if(face !== void && face != "" && face != "hide" && face != "show" && face != "hideonce"){
 			_currentFace = face;
 			var faceU = face.toUpperCase();
-			var did = faceU;
-			var lc = faceU[faceU.length - 1];
-			if(lc == "L" || lc == "M" || lc == "S"){
-				did = faceU.substring(0, faceU.length - 1);
-			}
-			if(did.length >= 7 && name != ""){
-				_lastBustupMap[name] = did;
+			var buid = getBuidFromName(name);
+			if(buid != "" && faceU.substring(0, 2) == buid){
+				var did = faceU;
+				var lc = faceU[faceU.length - 1];
+				if(lc == "L" || lc == "M" || lc == "S"){
+					did = faceU.substring(0, faceU.length - 1);
+				}
+				if(did.length >= 7 && name != ""){
+					_lastBustupMap[name] = did;
+				}
 			}
 		}
 		if(isMonologue(name)){
@@ -713,7 +740,11 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 			if(name == "悠"){
 				faceFile = "";
 			}else if(face !== void && face != "" && face != "hide" && face != "show" && face != "hideonce"){
-				faceFile = face;
+				var faceU2 = face.toUpperCase();
+				var buid2 = getBuidFromName(name);
+				if(buid2 != "" && faceU2.substring(0, 2) == buid2){
+					faceFile = face;
+				}
 			}else if(name != "" && _lastBustupMap[name] !== void){
 				faceFile = _lastBustupMap[name] + "L";
 			}else{
@@ -725,7 +756,7 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 				}else if(talkName == "穹"){
 					faceFile = "CA02_01L";
 				}else if(talkName == "奈绪" || talkName == "瑛" || talkName == "一叶" || talkName == "初佳" || talkName == "亮平" || talkName == "八寻" || talkName == "梢"){
-					faceFile = "CA01_01L";
+					faceFile = getDefaultFace(talkName);
 				}
 			}
 			_layoutFace = faceFile;
