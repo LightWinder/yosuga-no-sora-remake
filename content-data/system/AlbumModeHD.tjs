@@ -606,10 +606,12 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 	{
 		if(cg == null) return;
 
+		// TJS2: var is block-scoped; declare i at function scope
+		// so both pre/post loops can use it (EZ01A/EZ01B special entries).
+		var i;
 		if(_list[_tgtChar][cg] !== void)
 		{
 			var ref = _list[_tgtChar][cg].pre;
-			var i;
 			for(i = 0; i < ref.count; i++)
 				_adv.addOrderList(ref[i]);
 			_prevCg = cg;
