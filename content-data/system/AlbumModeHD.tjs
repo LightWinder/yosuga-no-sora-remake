@@ -602,6 +602,59 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 		view(cg, time);
 	}
 
+	// Measure event_1920 CG. If size != 1920x1080, return zoom offset
+	// (fit% - 100) for letterboxed full-image display; otherwise void.
+	function getAlbumFitZoomOffsetIfNeeded(name)
+	{
+		name = name.toUpperCase();
+		var path = "event_1920/" + name + ".png";
+		if(!Storages.isExistentStorage(path)) return void;
+
+		var tmp = new global.Layer(window, this);
+		tmp.visible = false;
+		tmp.hitThreshold = 256;
+		try
+		{
+			tmp.loadImages(path);
+			tmp.setSizeToImageSize();
+			var iw = tmp.imageWidth;
+			var ih = tmp.imageHeight;
+			if(iw == WINDOW_WIDTH && ih == WINDOW_HEIGHT)
+			{
+				invalidate tmp;
+				return void;
+			}
+
+			// Contain inside the screen; never upscale above 100%.
+			var zw = (WINDOW_WIDTH * 100) \ iw;
+			var zh = (WINDOW_HEIGHT * 100) \ ih;
+			var fit = zw;
+			if(zh < fit) fit = zh;
+			if(fit > 100) fit = 100;
+			if(fit < 1) fit = 1;
+			invalidate tmp;
+			return fit - 100;
+		}
+		catch
+		{
+			invalidate tmp;
+			return void;
+		}
+	}
+
+	// EZ01-style entries need chars / actions / bgscroll. Simple SD-era
+	// camera crops (EA06/EB06/...) should show the full frame in gallery.
+	function isAlbumComplexSpecial(cg)
+	{
+		if(_list[_tgtChar][cg] === void) return false;
+		var entry = _list[_tgtChar][cg];
+		if(entry.post !== void && entry.post.count > 0) return true;
+		if(entry.pre === void) return false;
+		if(entry.pre.count != 1) return true;
+		if(entry.pre[0].tagname != "cg") return true;
+		return false;
+	}
+
 	function view(cg, time=300)
 	{
 		if(cg == null) return;
@@ -609,23 +662,29 @@ class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemB
 		// TJS2: var is block-scoped; declare i at function scope
 		// so both pre/post loops can use it (EZ01A/EZ01B special entries).
 		var i;
-		if(_list[_tgtChar][cg] !== void)
+		if(isAlbumComplexSpecial(cg))
 		{
 			var ref = _list[_tgtChar][cg].pre;
 			for(i = 0; i < ref.count; i++)
 				_adv.addOrderList(ref[i]);
 			_prevCg = cg;
 		}
-		else if(cg != _prevCg)
+		else
 		{
-			_adv.addOrderList(%[tagname:"cg", file:cg, pos:"0,0", center:-1]);
+			// Full-frame gallery view. Ignore SD camera crops (e.g. EA06
+			// pos:"268,-266"). Non-1920x1080 assets also get contain-zoom.
+			var fitOff = getAlbumFitZoomOffsetIfNeeded(cg);
+			if(fitOff !== void)
+				_adv.addOrderList(%[tagname:"cg", file:cg, pos:"0,0", center:-1, zoom:fitOff]);
+			else
+				_adv.addOrderList(%[tagname:"cg", file:cg, pos:"0,0", center:-1]);
 			_prevCg = cg;
 		}
 
 		_adv._update |= UPDATE_CG;
 		_adv.update(%[time:time]);
 
-		if(_list[_tgtChar][cg] !== void)
+		if(isAlbumComplexSpecial(cg))
 		{
 			var post = _list[_tgtChar][cg].post;
 			if(post.count)
