@@ -1384,6 +1384,13 @@ HWND tTJSNI_Window::GetSurfaceWindowHandle()
 }
 #endif
 //---------------------------------------------------------------------------
+#if defined(__APPLE__) && !defined(__IPHONEOS__)
+void *tTJSNI_Window::GetNativeWindowHandle()
+{
+	return Form ? Form->GetNativeWindowHandle() : nullptr;
+}
+#endif
+//---------------------------------------------------------------------------
 void tTJSNI_Window::ZoomRectangle(
 	tjs_int & left, tjs_int & top,
 	tjs_int & right, tjs_int & bottom)

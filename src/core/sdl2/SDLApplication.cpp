@@ -23,7 +23,7 @@
 #ifdef KRKRZ_ENABLE_CANVAS
 #include "OpenGLScreenSDL2.h"
 #endif
-#ifdef _WIN32
+#if defined(_WIN32) || (defined(__APPLE__) && !defined(__IPHONEOS__))
 #include <SDL_syswm.h>
 #endif
 #include <SDL.h>
@@ -35,6 +35,11 @@
 #ifndef _WIN32
 #include <unistd.h>
 #endif
+#ifdef __ANDROID__
+#include <dirent.h>
+#endif
+#include <math.h>
+#include <algorithm>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -47,6 +52,10 @@
 
 #ifdef __EMSCRIPTEN__
 EM_JS_DEPS(main, "$FS,$IDBFS");
+#endif
+
+#if defined(__APPLE__) && !defined(__IPHONEOS__)
+#define KRKRSDL2_MACOS_NATIVE_PIXELS
 #endif
 
 #if defined(__IPHONEOS__) || defined(__ANDROID__) || defined(__EMSCRIPTEN__) || defined(__vita__) || defined(__SWITCH__)
@@ -66,6 +75,114 @@ class TVPWindowWindow;
 static TVPWindowWindow *_lastWindowWindow, *_currentWindowWindow;
 static SDL_GameController **sdl_controllers = nullptr;
 static int sdl_controller_num = 0;
+
+#ifdef KRKRSDL2_MACOS_NATIVE_PIXELS
+static bool TVPGetEnvFlag(const char *name, bool default_value)
+{
+	const char *value = SDL_getenv(name);
+	if (!value || !*value)
+	{
+		return default_value;
+	}
+	return !(SDL_strcasecmp(value, "0") == 0 ||
+		SDL_strcasecmp(value, "false") == 0 ||
+		SDL_strcasecmp(value, "no") == 0 ||
+		SDL_strcasecmp(value, "off") == 0);
+}
+
+static bool TVPUseMacOSNativePixels()
+{
+	static int cached_use_macos_native_pixels = -1;
+	if (cached_use_macos_native_pixels == -1)
+	{
+		cached_use_macos_native_pixels = TVPGetEnvFlag("KRKRSDL2_MACOS_NATIVE_PIXELS", true) ? 1 : 0;
+	}
+	return cached_use_macos_native_pixels == 1;
+}
+
+static const char *TVPGetRenderScaleQuality()
+{
+	const char *value = SDL_getenv("KRKRSDL2_RENDER_SCALE_QUALITY");
+	return (value && *value) ? value : "1";
+}
+
+#if SDL_VERSION_ATLEAST(2, 0, 12)
+static SDL_ScaleMode TVPGetTextureScaleMode()
+{
+	const char *quality = TVPGetRenderScaleQuality();
+	if (SDL_strcasecmp(quality, "0") == 0 ||
+		SDL_strcasecmp(quality, "nearest") == 0)
+	{
+		return SDL_ScaleModeNearest;
+	}
+	if (SDL_strcasecmp(quality, "2") == 0 ||
+		SDL_strcasecmp(quality, "best") == 0)
+	{
+		return SDL_ScaleModeBest;
+	}
+	return SDL_ScaleModeLinear;
+}
+#endif
+
+static void TVPGetMacOSBackingScale(SDL_Window *window, SDL_Renderer *renderer, float &scale_x, float &scale_y)
+{
+	scale_x = 1.0f;
+	scale_y = 1.0f;
+	if (!window || !renderer)
+	{
+		return;
+	}
+	int window_w = 0, window_h = 0, output_w = 0, output_h = 0;
+	SDL_GetWindowSize(window, &window_w, &window_h);
+	SDL_GetRendererOutputSize(renderer, &output_w, &output_h);
+	if (window_w > 0 && output_w > 0)
+	{
+		scale_x = (float)output_w / window_w;
+	}
+	if (window_h > 0 && output_h > 0)
+	{
+		scale_y = (float)output_h / window_h;
+	}
+}
+
+static void TVPSetMacOSNativeWindowOutputSize(SDL_Window *window, SDL_Renderer *renderer, int output_w, int output_h)
+{
+	if (!TVPUseMacOSNativePixels() || !window || !renderer || output_w < 1 || output_h < 1)
+	{
+		return;
+	}
+	if (SDL_GetWindowFlags(window) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_FULLSCREEN_DESKTOP))
+	{
+		return;
+	}
+	float scale_x, scale_y;
+	TVPGetMacOSBackingScale(window, renderer, scale_x, scale_y);
+	int window_w = SDL_max(1, (int)ceilf(output_w / scale_x));
+	int window_h = SDL_max(1, (int)ceilf(output_h / scale_y));
+	int current_w = 0, current_h = 0;
+	SDL_GetWindowSize(window, &current_w, &current_h);
+	if (current_w != window_w || current_h != window_h)
+	{
+		SDL_SetWindowSize(window, window_w, window_h);
+	}
+}
+
+static void TVPMacOSWindowPointToOutputPixel(SDL_Window *window, SDL_Renderer *renderer, int &x, int &y)
+{
+	float scale_x, scale_y;
+	TVPGetMacOSBackingScale(window, renderer, scale_x, scale_y);
+	x = (int)floorf((float)x * scale_x);
+	y = (int)floorf((float)y * scale_y);
+}
+
+static void TVPMacOSOutputPixelToWindowPoint(SDL_Window *window, SDL_Renderer *renderer, int &x, int &y)
+{
+	float scale_x, scale_y;
+	TVPGetMacOSBackingScale(window, renderer, scale_x, scale_y);
+	x = (int)ceilf((float)x / scale_x);
+	y = (int)ceilf((float)y / scale_y);
+}
+#endif
 
 #if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
 static void process_events();
@@ -524,6 +641,12 @@ protected:
 	int lastMouseX;
 	int lastMouseY;
 
+#ifdef KRKRSDL2_MACOS_NATIVE_PIXELS
+	float macOSBackingScaleX = 1.0f;
+	float macOSBackingScaleY = 1.0f;
+	void UpdateMacOSBackingScale();
+#endif
+
 #ifdef KRKRSDL2_ENABLE_ZOOM
 	tTVPRect FullScreenDestRect;
 	tTVPRect LastSentDrawDeviceDestRect;
@@ -698,6 +821,7 @@ public:
 	virtual tjs_int GetInnerWidth() override;
 	/* Called from tTJSNI_Window */
 	virtual tjs_int GetInnerHeight() override;
+	virtual void *GetNativeWindowHandle() const override;
 #ifdef _WIN32
 	virtual void RegisterWindowMessageReceiver(tTVPWMRRegMode mode, void *proc, const void *userdata) override;
 	bool InternalDeliverMessageToReceiver(tTVPWindowMessage &msg);
@@ -745,7 +869,11 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 	Uint32 window_flags = 0;
 
 #ifdef SDL_HINT_RENDER_SCALE_QUALITY
+#ifdef KRKRSDL2_MACOS_NATIVE_PIXELS
+	SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, TVPGetRenderScaleQuality(), SDL_HINT_DEFAULT);
+#else
 	SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "2", SDL_HINT_DEFAULT);
+#endif
 #endif
 
 #ifdef KRKRZ_ENABLE_CANVAS
@@ -780,6 +908,12 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 #endif
 	new_window_w = 0;
 	new_window_h = 0;
+#endif
+#ifdef KRKRSDL2_MACOS_NATIVE_PIXELS
+	if (TVPUseMacOSNativePixels())
+	{
+		window_flags |= SDL_WINDOW_ALLOW_HIGHDPI;
+	}
 #endif
 
 #ifdef _WIN32
@@ -943,6 +1077,12 @@ void TVPWindowWindow::SetPaintBoxSize(tjs_int w, tjs_int h)
 		{
 			TVPThrowExceptionMessage(TJS_W("Cannot create texture texture: %1"), ttstr(SDL_GetError()));
 		}
+#if defined(KRKRSDL2_MACOS_NATIVE_PIXELS) && SDL_VERSION_ATLEAST(2, 0, 12)
+		if (TVPUseMacOSNativePixels())
+		{
+			SDL_SetTextureScaleMode(this->texture, TVPGetTextureScaleMode());
+		}
+#endif
 		this->bitmapCompletion->surface = nullptr;
 		if (this->surface)
 		{
@@ -965,6 +1105,10 @@ void TVPWindowWindow::SetPaintBoxSize(tjs_int w, tjs_int h)
 #endif
 	if (this->renderer)
 	{
+#ifdef KRKRSDL2_MACOS_NATIVE_PIXELS
+		TVPSetMacOSNativeWindowOutputSize(this->window, this->renderer, w, h);
+		this->UpdateMacOSBackingScale();
+#endif
 #ifdef KRKRSDL2_ENABLE_ZOOM
 		this->UpdateActualZoom();
 #else
@@ -991,6 +1135,16 @@ static int MulDiv(int nNumber, int nNumerator, int nDenominator)
 }
 #endif
 
+#ifdef KRKRSDL2_MACOS_NATIVE_PIXELS
+void TVPWindowWindow::UpdateMacOSBackingScale()
+{
+	if (TVPUseMacOSNativePixels())
+	{
+		TVPGetMacOSBackingScale(this->window, this->renderer, this->macOSBackingScaleX, this->macOSBackingScaleY);
+	}
+}
+#endif
+
 void TVPWindowWindow::TranslateWindowToDrawArea(int &x, int &y)
 {
 #ifdef KRKRSDL2_ENABLE_ZOOM
@@ -998,6 +1152,13 @@ void TVPWindowWindow::TranslateWindowToDrawArea(int &x, int &y)
 	if (this->context)
 	{
 		return;
+	}
+#endif
+#ifdef KRKRSDL2_MACOS_NATIVE_PIXELS
+	if (TVPUseMacOSNativePixels())
+	{
+		x = (int)floorf((float)x * this->macOSBackingScaleX);
+		y = (int)floorf((float)y * this->macOSBackingScaleY);
 	}
 #endif
 	x -= this->LastSentDrawDeviceDestRect.left;
@@ -1020,6 +1181,13 @@ void TVPWindowWindow::TranslateDrawAreaToWindow(int &x, int &y)
 	y = MulDiv(y, this->LastSentDrawDeviceDestRect.get_height(), this->GetInnerHeight());
 	x += this->LastSentDrawDeviceDestRect.left;
 	y += this->LastSentDrawDeviceDestRect.top;
+#ifdef KRKRSDL2_MACOS_NATIVE_PIXELS
+	if (TVPUseMacOSNativePixels())
+	{
+		x = (int)ceilf((float)x / this->macOSBackingScaleX);
+		y = (int)ceilf((float)y / this->macOSBackingScaleY);
+	}
+#endif
 #endif
 }
 
@@ -1275,6 +1443,12 @@ void TVPWindowWindow::SetFullScreenMode(bool fullscreen)
 	if (this->window)
 	{
 		SDL_SetWindowFullscreen(this->window, fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+#ifdef KRKRSDL2_MACOS_NATIVE_PIXELS
+		if (!fullscreen)
+		{
+			TVPSetMacOSNativeWindowOutputSize(this->window, this->renderer, this->GetInnerWidth(), this->GetInnerHeight());
+		}
+#endif
 	}
 	this->UpdateWindow(utNormal);
 #endif
@@ -1293,7 +1467,7 @@ void TVPWindowWindow::SetBorderStyle(tTVPBorderStyle bs)
 	if (this->window)
 	{
 		SDL_SetWindowBordered(this->window, (bs == bsNone) ? SDL_FALSE : SDL_TRUE);
-		SDL_SetWindowResizable(this->window, (bs == bsSizeable || bs == bsSizeToolWin) ? SDL_TRUE : SDL_FALSE);
+		SDL_SetWindowResizable(this->window, SDL_FALSE);
 	}
 #endif
 }
@@ -1348,6 +1522,15 @@ void TVPWindowWindow::SetWidth(tjs_int w)
 	{
 		int h;
 		SDL_GetWindowSize(this->window, nullptr, &h);
+#ifdef KRKRSDL2_MACOS_NATIVE_PIXELS
+		if (this->renderer && TVPUseMacOSNativePixels())
+		{
+			int output_w = 0, output_h = 0;
+			SDL_GetRendererOutputSize(this->renderer, &output_w, &output_h);
+			TVPSetMacOSNativeWindowOutputSize(this->window, this->renderer, w, output_h);
+		}
+		else
+#endif
 		SDL_SetWindowSize(this->window, w, h);
 		if (!this->renderer && this->surface)
 		{
@@ -1374,6 +1557,15 @@ void TVPWindowWindow::SetHeight(tjs_int h)
 	{
 		int w;
 		SDL_GetWindowSize(this->window, &w, nullptr);
+#ifdef KRKRSDL2_MACOS_NATIVE_PIXELS
+		if (this->renderer && TVPUseMacOSNativePixels())
+		{
+			int output_w = 0, output_h = 0;
+			SDL_GetRendererOutputSize(this->renderer, &output_w, &output_h);
+			TVPSetMacOSNativeWindowOutputSize(this->window, this->renderer, output_w, h);
+		}
+		else
+#endif
 		SDL_SetWindowSize(this->window, w, h);
 		if (!this->renderer && this->surface)
 		{
@@ -1398,6 +1590,13 @@ void TVPWindowWindow::SetSize(tjs_int w, tjs_int h)
 #ifndef KRKRSDL2_WINDOW_SIZE_IS_LAYER_SIZE
 	if (this->window)
 	{
+#ifdef KRKRSDL2_MACOS_NATIVE_PIXELS
+		if (this->renderer && TVPUseMacOSNativePixels())
+		{
+			TVPSetMacOSNativeWindowOutputSize(this->window, this->renderer, w, h);
+		}
+		else
+#endif
 		SDL_SetWindowSize(this->window, w, h);
 		if (!this->renderer && this->surface)
 		{
@@ -1445,6 +1644,12 @@ tjs_int TVPWindowWindow::GetWidth() const
 	if (this->window)
 	{
 		SDL_GetWindowSize(this->window, &w, nullptr);
+#ifdef KRKRSDL2_MACOS_NATIVE_PIXELS
+		if (TVPUseMacOSNativePixels())
+		{
+			w = (int)floorf((float)w * this->macOSBackingScaleX);
+		}
+#endif
 		return w;
 	}
 #endif
@@ -1466,6 +1671,12 @@ tjs_int TVPWindowWindow::GetHeight() const
 	if (this->window)
 	{
 		SDL_GetWindowSize(this->window, nullptr, &h);
+#ifdef KRKRSDL2_MACOS_NATIVE_PIXELS
+		if (TVPUseMacOSNativePixels())
+		{
+			h = (int)floorf((float)h * this->macOSBackingScaleY);
+		}
+#endif
 		return h;
 	}
 #endif
@@ -2043,6 +2254,24 @@ void TVPWindowWindow::UpdateActualZoom(void)
 	int sb_w, sb_h, zoom_d, zoom_n, output_w, output_h;
 	SDL_GetRendererOutputSize(this->renderer, &output_w, &output_h);
 
+#ifdef KRKRSDL2_MACOS_NATIVE_PIXELS
+	if (TVPUseMacOSNativePixels() && this->window &&
+		!(SDL_GetWindowFlags(this->window) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_FULLSCREEN_DESKTOP)))
+	{
+		SDL_Rect viewport;
+		viewport.w = this->GetInnerWidth();
+		viewport.h = this->GetInnerHeight();
+		viewport.x = (output_w - viewport.w) / 2;
+		viewport.y = (output_h - viewport.h) / 2;
+		this->FullScreenDestRect.set_size(viewport.w, viewport.h);
+		this->FullScreenDestRect.set_offsets(viewport.x, viewport.y);
+		this->ActualZoomNumer = 1;
+		this->ActualZoomDenom = 1;
+		this->SetDrawDeviceDestRect();
+		return;
+	}
+#endif
+
 	float layer_aspect = (float)this->GetInnerWidth() / this->GetInnerHeight();
 	float output_aspect = (float)output_w / output_h;
 
@@ -2051,12 +2280,28 @@ void TVPWindowWindow::UpdateActualZoom(void)
 	SDL_Rect viewport;
 	if (SDL_fabs(layer_aspect - output_aspect) < 0.0001)
 	{
-		zoom_n = 1;
-		zoom_d = 1;
-		viewport.x = 0;
-		viewport.y = 0;
-		viewport.w = this->GetInnerWidth();
-		viewport.h = this->GetInnerHeight();
+#ifdef KRKRSDL2_MACOS_NATIVE_PIXELS
+		if (TVPUseMacOSNativePixels() && this->window &&
+			(SDL_GetWindowFlags(this->window) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_FULLSCREEN_DESKTOP)))
+		{
+			zoom_n = output_w;
+			zoom_d = this->GetInnerWidth();
+			TVPDoReductionNumerAndDenom(zoom_n, zoom_d);
+			viewport.x = 0;
+			viewport.y = 0;
+			viewport.w = output_w;
+			viewport.h = output_h;
+		}
+		else
+#endif
+		{
+			zoom_n = 1;
+			zoom_d = 1;
+			viewport.x = 0;
+			viewport.y = 0;
+			viewport.w = this->GetInnerWidth();
+			viewport.h = this->GetInnerHeight();
+		}
 	}
 	else if (layer_aspect > output_aspect)
 	{
@@ -2332,6 +2577,27 @@ HWND TVPWindowWindow::GetHandle() const
 }
 #endif
 
+void *TVPWindowWindow::GetNativeWindowHandle() const
+{
+#if defined(_WIN32) || (defined(__APPLE__) && !defined(__IPHONEOS__))
+	SDL_SysWMinfo syswminfo;
+	SDL_VERSION(&syswminfo.version);
+	if (!this->window || !SDL_GetWindowWMInfo(this->window, &syswminfo))
+	{
+		return nullptr;
+	}
+#ifdef _WIN32
+	return syswminfo.subsystem == SDL_SYSWM_WINDOWS
+		? static_cast<void *>(syswminfo.info.win.window) : nullptr;
+#else
+	return syswminfo.subsystem == SDL_SYSWM_COCOA
+		? static_cast<void *>(syswminfo.info.cocoa.window) : nullptr;
+#endif
+#else
+	return nullptr;
+#endif
+}
+
 bool TVPWindowWindow::should_try_parent_window(SDL_Event event)
 {
 	bool tryParentWindow = false;
@@ -2567,6 +2833,9 @@ void TVPWindowWindow::window_receive_event(SDL_Event event)
 						case SDL_WINDOWEVENT_RESIZED:
 						case SDL_WINDOWEVENT_SIZE_CHANGED:
 						{
+#ifdef KRKRSDL2_MACOS_NATIVE_PIXELS
+							this->UpdateMacOSBackingScale();
+#endif
 #ifdef KRKRSDL2_ENABLE_ZOOM
 							this->UpdateActualZoom();
 #else
@@ -3159,13 +3428,63 @@ TShiftState TVP_TShiftState_From_uint32(tjs_uint32 state)
 	return result;
 }
 
-void TVPGetAllFontList(std::vector<tjs_string>& list) {}
+void TVPGetAllFontList(std::vector<tjs_string>& list)
+{
+#ifdef __ANDROID__
+	extern void TVPAddSystemFontToFreeType(const std::string &storage,
+		std::vector<tjs_string> *faces);
+	extern void TVPGetSystemFontListFromFreeType(std::vector<tjs_string> &faces);
+	static bool initialized = false;
+	if (initialized)
+	{
+		TVPGetSystemFontListFromFreeType(list);
+		return;
+	}
+
+	DIR *directory = opendir("/system/fonts/");
+	if (directory)
+	{
+		while (dirent *entry = readdir(directory))
+		{
+			const char *extension = SDL_strrchr(entry->d_name, '.');
+			if (!extension ||
+				(SDL_strcasecmp(extension, ".ttf") != 0 &&
+				 SDL_strcasecmp(extension, ".ttc") != 0 &&
+				 SDL_strcasecmp(extension, ".otf") != 0))
+			{
+				continue;
+			}
+			TVPAddSystemFontToFreeType(
+				std::string("/system/fonts/") + entry->d_name, &list);
+		}
+		closedir(directory);
+	}
+	initialized = true;
+#else
+	(void)list;
+#endif
+}
 
 const tjs_char *TVPGetDefaultFontName()
 {
 	if (!TVPGetCommandLine(TJS_W("-deffont"), nullptr))
 	{
+#ifdef __ANDROID__
+		extern void TVPAddSystemFontToFreeType(const std::string &storage,
+			std::vector<tjs_string> *faces);
+		std::vector<tjs_string> faces;
+		TVPAddSystemFontToFreeType(
+			"/system/fonts/NotoSansCJK-Regular.ttc", &faces);
+		tjs_string default_face = TJS_W("Noto Sans CJK JP");
+		if (std::find(faces.begin(), faces.end(), default_face) == faces.end() &&
+			!faces.empty())
+		{
+			default_face = faces.front();
+		}
+		TVPSetCommandLine(TJS_W("-deffont"), default_face.c_str());
+#else
 		TVPSetCommandLine(TJS_W("-deffont"), TJS_W("Noto Sans CJK JP"));
+#endif
 	}
 	static tjs_int ArgumentGeneration = 0;
 	if (ArgumentGeneration != TVPGetCommandLineArgumentGeneration())

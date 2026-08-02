@@ -30,6 +30,14 @@
 #endif
 
 #include "Application.h"
+#ifdef __ANDROID__
+#include <jni.h>
+#include <sys/stat.h>
+#include <SDL_system.h>
+#endif
+#ifdef KRKRSDL2_MACOS_VIDEO_OVERLAY
+#include "MacVideoOverlay.h"
+#endif
 #if defined(_WIN32) && defined(KRKRSDL2_USE_WIN32_EVENT_QUEUE) && defined(KRKRSDL2_ENABLE_VIDEOOVERLAY)
 #include "TVPVideoOverlay.h"
 #else
@@ -39,6 +47,68 @@
 
 //---------------------------------------------------------------------------
 static std::vector<tTJSNI_VideoOverlay *> TVPVideoOverlayVector;
+#ifdef __ANDROID__
+static tTJSNI_VideoOverlay *TVPAndroidActiveVideoOverlay = nullptr;
+
+static bool TVPAndroidCheckAndClearJNIException(JNIEnv *env, const char *operation)
+{
+	if(!env->ExceptionCheck()) return false;
+	SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+		"Android movie JNI call failed: %s", operation);
+	env->ExceptionDescribe();
+	env->ExceptionClear();
+	return true;
+}
+
+static bool TVPAndroidCallMovieVoid(const char *methodName)
+{
+	JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+	jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+	if(!env || !activity) return false;
+	jclass activityClass = env->GetObjectClass(activity);
+	jmethodID method = activityClass ?
+		env->GetMethodID(activityClass, methodName, "()V") : nullptr;
+	if(method) env->CallVoidMethod(activity, method);
+	bool failed = !method || TVPAndroidCheckAndClearJNIException(env, methodName);
+	if(activityClass) env->DeleteLocalRef(activityClass);
+	env->DeleteLocalRef(activity);
+	return !failed;
+}
+
+static bool TVPAndroidCallMovieOpen(const std::string &path)
+{
+	JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+	jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+	if(!env || !activity) return false;
+	jclass activityClass = env->GetObjectClass(activity);
+	jmethodID method = activityClass ? env->GetMethodID(activityClass,
+		"openMovie", "(Ljava/lang/String;)V") : nullptr;
+	jstring javaPath = env->NewStringUTF(path.c_str());
+	if(method && javaPath) env->CallVoidMethod(activity, method, javaPath);
+	bool failed = !method || !javaPath ||
+		TVPAndroidCheckAndClearJNIException(env, "openMovie");
+	if(javaPath) env->DeleteLocalRef(javaPath);
+	if(activityClass) env->DeleteLocalRef(activityClass);
+	env->DeleteLocalRef(activity);
+	return !failed;
+}
+
+static bool TVPAndroidCallMovieVolume(float volume)
+{
+	JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+	jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+	if(!env || !activity) return false;
+	jclass activityClass = env->GetObjectClass(activity);
+	jmethodID method = activityClass ? env->GetMethodID(activityClass,
+		"setMovieVolume", "(F)V") : nullptr;
+	if(method) env->CallVoidMethod(activity, method, static_cast<jfloat>(volume));
+	bool failed = !method ||
+		TVPAndroidCheckAndClearJNIException(env, "setMovieVolume");
+	if(activityClass) env->DeleteLocalRef(activityClass);
+	env->DeleteLocalRef(activity);
+	return !failed;
+}
+#endif
 //---------------------------------------------------------------------------
 static void TVPAddVideOverlay(tTJSNI_VideoOverlay *ovl)
 {
@@ -77,6 +147,12 @@ tTJSNI_VideoOverlay::tTJSNI_VideoOverlay()
 {
 #if defined(_WIN32) && defined(KRKRSDL2_USE_WIN32_EVENT_QUEUE) && defined(KRKRSDL2_ENABLE_VIDEOOVERLAY)
 	VideoOverlay = NULL;
+#endif
+#ifdef KRKRSDL2_MACOS_VIDEO_OVERLAY
+	MacVideoOverlay = nullptr;
+#endif
+#ifdef __ANDROID__
+	AndroidVideoOpen = false;
 #endif
 	Rect.left = 0;
 	Rect.top = 0;
@@ -229,6 +305,68 @@ void tTJSNI_VideoOverlay::Open(const ttstr &_name)
 	// set Status
 	ClearWndProcMessages();
 	SetStatus(tTVPVideoOverlayStatus::Stop);
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	Close();
+	if(!Window) TVPThrowExceptionMessage(TVPWindowAlreadyMissing);
+
+	ttstr placedName = TVPGetPlacedPath(_name);
+	if(placedName.IsEmpty())
+		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
+	LocalTempStorageHolder = new tTVPLocalTempStorageHolder(placedName);
+	std::string filename;
+	if(!TVPUtf16ToUtf8(filename,
+		LocalTempStorageHolder->GetLocalName().AsStdString()))
+	{
+		Close();
+		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
+	}
+	MacVideoOverlay = TVPMacVideoCreate(filename.c_str(),
+		Window->GetNativeWindowHandle(), this,
+		[](void *context) {
+			static_cast<tTJSNI_VideoOverlay *>(context)->MacPlaybackFinished();
+		});
+	if(!MacVideoOverlay)
+	{
+		Close();
+		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
+	}
+	SetRectangleToVideoOverlay();
+	TVPMacVideoSetVisible(MacVideoOverlay, Visible ? 1 : 0);
+	SetStatus(tTVPVideoOverlayStatus::Stop);
+#elif defined(__ANDROID__)
+	Close();
+	if(!Window) TVPThrowExceptionMessage(TVPWindowAlreadyMissing);
+
+	ttstr placedName = TVPGetPlacedPath(_name);
+	if(placedName.IsEmpty())
+		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
+	ttstr localName = TVPGetLocallyAccessibleName(placedName);
+	if(localName.IsEmpty())
+		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
+
+	std::string filename;
+	if(!TVPUtf16ToUtf8(filename, localName.AsStdString()))
+		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
+
+	struct stat localStat;
+	if(stat(filename.c_str(), &localStat) != 0)
+	{
+		while(filename.size() >= 2 && filename[0] == '.' && filename[1] == '/')
+			filename.erase(0, 2);
+		while(!filename.empty() && filename[0] == '/') filename.erase(0, 1);
+		filename = "asset:///" + filename;
+	}
+
+	TVPAndroidActiveVideoOverlay = this;
+	AndroidVideoOpen = true;
+	if(!TVPAndroidCallMovieOpen(filename))
+	{
+		TVPAndroidActiveVideoOverlay = nullptr;
+		AndroidVideoOpen = false;
+		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
+	}
+	SDL_Log("Android MediaPlayer opening: %s", filename.c_str());
+	SetStatus(tTVPVideoOverlayStatus::Stop);
 #endif
 }
 //---------------------------------------------------------------------------
@@ -254,6 +392,20 @@ void tTJSNI_VideoOverlay::Close()
 
 	Bitmap[0] = Bitmap[1] = NULL;
 	BmpBits[0] = BmpBits[1] = NULL;
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay)
+	{
+		TVPMacVideoDestroy(MacVideoOverlay);
+		MacVideoOverlay = nullptr;
+	}
+	if(LocalTempStorageHolder)
+		delete LocalTempStorageHolder, LocalTempStorageHolder = NULL;
+	SetStatus(tTVPVideoOverlayStatus::Unload);
+#elif defined(__ANDROID__)
+	if(AndroidVideoOpen) TVPAndroidCallMovieVoid("stopMovie");
+	if(TVPAndroidActiveVideoOverlay == this) TVPAndroidActiveVideoOverlay = nullptr;
+	AndroidVideoOpen = false;
+	SetStatus(tTVPVideoOverlayStatus::Unload);
 #endif
 }
 //---------------------------------------------------------------------------
@@ -275,6 +427,19 @@ void tTJSNI_VideoOverlay::Shutdown()
 		throw;
 	}
 	CanDeliverEvents = c;
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay)
+	{
+		TVPMacVideoDestroy(MacVideoOverlay);
+		MacVideoOverlay = nullptr;
+	}
+	if(LocalTempStorageHolder)
+		delete LocalTempStorageHolder, LocalTempStorageHolder = NULL;
+#elif defined(__ANDROID__)
+	if(AndroidVideoOpen) TVPAndroidCallMovieVoid("stopMovie");
+	if(TVPAndroidActiveVideoOverlay == this) TVPAndroidActiveVideoOverlay = nullptr;
+	AndroidVideoOpen = false;
+	SetStatus(tTVPVideoOverlayStatus::Unload);
 #endif
 }
 //---------------------------------------------------------------------------
@@ -285,6 +450,50 @@ void tTJSNI_VideoOverlay::Disconnect()
 
 	Window = NULL;
 }
+#ifdef KRKRSDL2_MACOS_VIDEO_OVERLAY
+void tTJSNI_VideoOverlay::MacPlaybackFinished()
+{
+	if(Loop && MacVideoOverlay)
+	{
+		TVPMacVideoRewind(MacVideoOverlay);
+		TVPMacVideoPlay(MacVideoOverlay);
+		FirePeriodEvent(perLoop);
+	}
+	else
+	{
+		SetStatusAsync(tTVPVideoOverlayStatus::Stop);
+	}
+}
+#endif
+#ifdef __ANDROID__
+void tTJSNI_VideoOverlay::AndroidPlaybackFinished()
+{
+	if(!AndroidVideoOpen) return;
+	AndroidVideoOpen = false;
+	if(TVPAndroidActiveVideoOverlay == this) TVPAndroidActiveVideoOverlay = nullptr;
+	SetStatusAsync(tTVPVideoOverlayStatus::Stop);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_pw_uyjulian_krkrsdl2_KirikiriSDL2Activity_nativeOnMovieFinished(
+	JNIEnv *, jclass)
+{
+	if(TVPAndroidActiveVideoOverlay)
+		TVPAndroidActiveVideoOverlay->AndroidPlaybackFinished();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_pw_uyjulian_krkrsdl2_KirikiriSDL2Activity_nativeOnMovieError(
+	JNIEnv *env, jclass, jstring message)
+{
+	const char *utf8Message = message ? env->GetStringUTFChars(message, nullptr) : nullptr;
+	SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Android movie error: %s",
+		utf8Message ? utf8Message : "unknown error");
+	if(utf8Message) env->ReleaseStringUTFChars(message, utf8Message);
+	if(TVPAndroidActiveVideoOverlay)
+		TVPAndroidActiveVideoOverlay->AndroidPlaybackFinished();
+}
+#endif
 //---------------------------------------------------------------------------
 void tTJSNI_VideoOverlay::Play()
 {
@@ -296,6 +505,15 @@ void tTJSNI_VideoOverlay::Play()
 		ClearWndProcMessages();
 		if( Mode != vomMFEVR ) SetStatus(tTVPVideoOverlayStatus::Play);
 	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay)
+	{
+		TVPMacVideoPlay(MacVideoOverlay);
+		SetStatus(tTVPVideoOverlayStatus::Play);
+	}
+#elif defined(__ANDROID__)
+	if(AndroidVideoOpen && TVPAndroidCallMovieVoid("playMovie"))
+		SetStatus(tTVPVideoOverlayStatus::Play);
 #endif
 }
 //---------------------------------------------------------------------------
@@ -308,6 +526,19 @@ void tTJSNI_VideoOverlay::Stop()
 		VideoOverlay->Stop();
 		ClearWndProcMessages();
 		if( Mode != vomMFEVR ) SetStatus(tTVPVideoOverlayStatus::Stop);
+	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay)
+	{
+		TVPMacVideoStop(MacVideoOverlay);
+		SetStatus(tTVPVideoOverlayStatus::Stop);
+	}
+#elif defined(__ANDROID__)
+	if(AndroidVideoOpen)
+	{
+		TVPAndroidCallMovieVoid("stopMovie");
+		AndroidVideoOpen = false;
+		SetStatus(tTVPVideoOverlayStatus::Stop);
 	}
 #endif
 }
@@ -322,6 +553,15 @@ void tTJSNI_VideoOverlay::Pause()
 //		ClearWndProcMessages();
 		if( Mode != vomMFEVR ) SetStatus(tTVPVideoOverlayStatus::Pause);
 	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay)
+	{
+		TVPMacVideoPause(MacVideoOverlay);
+		SetStatus(tTVPVideoOverlayStatus::Pause);
+	}
+#elif defined(__ANDROID__)
+	if(AndroidVideoOpen && TVPAndroidCallMovieVoid("pauseMovie"))
+		SetStatus(tTVPVideoOverlayStatus::Pause);
 #endif
 }
 void tTJSNI_VideoOverlay::Rewind()
@@ -336,6 +576,10 @@ void tTJSNI_VideoOverlay::Rewind()
 		if( EventFrame >= 0 && IsEventPast )
 			IsEventPast = false;
 	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay) TVPMacVideoRewind(MacVideoOverlay);
+#elif defined(__ANDROID__)
+	if(AndroidVideoOpen) TVPAndroidCallMovieVoid("rewindMovie");
 #endif
 }
 void tTJSNI_VideoOverlay::Prepare()
@@ -384,6 +628,16 @@ void tTJSNI_VideoOverlay::SetRectangleToVideoOverlay()
 			ttstr(r) + TJS_W(",") + ttstr(b) + TJS_W(")"));
 		RECT rect = {l + ofsx, t + ofsy, r + ofsx, b + ofsy};
 		VideoOverlay->SetRect(&rect);
+	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay && Window)
+	{
+		tjs_int l = Rect.left;
+		tjs_int t = Rect.top;
+		tjs_int r = Rect.right;
+		tjs_int b = Rect.bottom;
+		Window->ZoomRectangle(l, t, r, b);
+		TVPMacVideoSetBounds(MacVideoOverlay, l, t, r - l, b - t);
 	}
 #endif
 }
@@ -478,6 +732,8 @@ void tTJSNI_VideoOverlay::SetVisible(bool b)
 			VideoOverlay->SetVisible(Visible);
 		}
 	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay) TVPMacVideoSetVisible(MacVideoOverlay, Visible ? 1 : 0);
 #endif
 }
 //---------------------------------------------------------------------------
@@ -719,6 +975,9 @@ void tTJSNI_VideoOverlay::SetTimePosition( tjs_uint64 p )
 	{
 		VideoOverlay->SetPosition( p );
 	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay)
+		TVPMacVideoSetTime(MacVideoOverlay, (double)p / 1000.0);
 #endif
 }
 tjs_uint64 tTJSNI_VideoOverlay::GetTimePosition()
@@ -729,6 +988,9 @@ tjs_uint64 tTJSNI_VideoOverlay::GetTimePosition()
 	{
 		VideoOverlay->GetPosition( &result );
 	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay)
+		result = (tjs_uint64)(TVPMacVideoGetTime(MacVideoOverlay) * 1000.0);
 #endif
 	return result;
 }
@@ -742,6 +1004,15 @@ void tTJSNI_VideoOverlay::SetFrame( tjs_int f )
 		if( EventFrame >= f && IsEventPast )
 			IsEventPast = false;
 	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay)
+	{
+		double fps = TVPMacVideoGetFPS(MacVideoOverlay);
+		if(fps > 0.0)
+			TVPMacVideoSetTime(MacVideoOverlay, (double)f / fps);
+		if(EventFrame >= f && IsEventPast)
+			IsEventPast = false;
+	}
 #endif
 }
 tjs_int tTJSNI_VideoOverlay::GetFrame()
@@ -751,6 +1022,13 @@ tjs_int tTJSNI_VideoOverlay::GetFrame()
 	if(VideoOverlay)
 	{
 		VideoOverlay->GetFrame( &result );
+	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay)
+	{
+		double fps = TVPMacVideoGetFPS(MacVideoOverlay);
+		if(fps > 0.0)
+			result = (tjs_int)(TVPMacVideoGetTime(MacVideoOverlay) * fps);
 	}
 #endif
 	return result;
@@ -792,6 +1070,8 @@ tjs_real tTJSNI_VideoOverlay::GetFPS()
 	{
 		VideoOverlay->GetFPS( &result );
 	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay) result = TVPMacVideoGetFPS(MacVideoOverlay);
 #endif
 	return result;
 }
@@ -802,6 +1082,14 @@ tjs_int tTJSNI_VideoOverlay::GetNumberOfFrame()
 	if(VideoOverlay)
 	{
 		VideoOverlay->GetNumberOfFrame( &result );
+	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay)
+	{
+		double fps = TVPMacVideoGetFPS(MacVideoOverlay);
+		double duration = TVPMacVideoGetDuration(MacVideoOverlay);
+		if(fps > 0.0 && duration > 0.0)
+			result = (tjs_int)(duration * fps + 0.5);
 	}
 #endif
 	return result;
@@ -814,6 +1102,9 @@ tjs_int64 tTJSNI_VideoOverlay::GetTotalTime()
 	{
 		VideoOverlay->GetTotalTime( &result );
 	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay)
+		result = (tjs_int64)(TVPMacVideoGetDuration(MacVideoOverlay) * 1000.0);
 #endif
 	return result;
 }
@@ -837,6 +1128,8 @@ void tTJSNI_VideoOverlay::SetMode( tTVPVideoOverlayMode m )
 	{
 		Mode = m;
 	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(!MacVideoOverlay) Mode = m;
 #endif
 }
 
@@ -848,6 +1141,8 @@ tjs_real tTJSNI_VideoOverlay::GetPlayRate()
 	{
 		VideoOverlay->GetPlayRate( &result );
 	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay) result = TVPMacVideoGetRate(MacVideoOverlay);
 #endif
 	return result;
 }
@@ -858,6 +1153,8 @@ void tTJSNI_VideoOverlay::SetPlayRate(tjs_real r)
 	{
 		VideoOverlay->SetPlayRate( r );
 	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay) TVPMacVideoSetRate(MacVideoOverlay, (float)r);
 #endif
 }
 
@@ -889,6 +1186,11 @@ tjs_int tTJSNI_VideoOverlay::GetAudioVolume()
 	{
 		VideoOverlay->GetAudioVolume( &result );
 	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay)
+		return (tjs_int)(TVPMacVideoGetVolume(MacVideoOverlay) * 100000.0f);
+#elif defined(__ANDROID__)
+	return AndroidVideoOpen ? 100000 : 0;
 #endif
 	return TVPDSAttenuateToVolume( result );
 }
@@ -898,6 +1200,16 @@ void tTJSNI_VideoOverlay::SetAudioVolume(tjs_int b)
 	if(VideoOverlay)
 	{
 		VideoOverlay->SetAudioVolume( TVPVolumeToDSAttenuate( b ) );
+	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay)
+		TVPMacVideoSetVolume(MacVideoOverlay, (float)b / 100000.0f);
+#elif defined(__ANDROID__)
+	if(AndroidVideoOpen)
+	{
+		if(b < 0) b = 0;
+		if(b > 100000) b = 100000;
+		TVPAndroidCallMovieVolume(static_cast<float>(b) / 100000.0f);
 	}
 #endif
 }
@@ -909,6 +1221,10 @@ tjs_uint tTJSNI_VideoOverlay::GetNumberOfAudioStream()
 	{
 		VideoOverlay->GetNumberOfAudioStream( &result );
 	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay) result = TVPMacVideoHasAudio(MacVideoOverlay) ? 1 : 0;
+#elif defined(__ANDROID__)
+	if(AndroidVideoOpen) result = 1;
 #endif
 	return result;
 }
@@ -929,6 +1245,10 @@ tjs_int tTJSNI_VideoOverlay::GetEnabledAudioStream()
 	{
 		VideoOverlay->GetEnableAudioStreamNum( &result );
 	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay && TVPMacVideoHasAudio(MacVideoOverlay)) result = 0;
+#elif defined(__ANDROID__)
+	if(AndroidVideoOpen) result = 0;
 #endif
 	return result;
 }
@@ -950,6 +1270,10 @@ tjs_uint tTJSNI_VideoOverlay::GetNumberOfVideoStream()
 	{
 		VideoOverlay->GetNumberOfVideoStream( &result );
 	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay && TVPMacVideoGetWidth(MacVideoOverlay) > 0) result = 1;
+#elif defined(__ANDROID__)
+	if(AndroidVideoOpen) result = 1;
 #endif
 	return result;
 }
@@ -970,6 +1294,10 @@ tjs_int tTJSNI_VideoOverlay::GetEnabledVideoStream()
 	{
 		VideoOverlay->GetEnableVideoStreamNum( &result );
 	}
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	if(MacVideoOverlay && TVPMacVideoGetWidth(MacVideoOverlay) > 0) result = 0;
+#elif defined(__ANDROID__)
+	if(AndroidVideoOpen) result = 0;
 #endif
 	return result;
 }
@@ -1340,6 +1668,8 @@ tjs_int tTJSNI_VideoOverlay::GetOriginalWidth()
 	long	width, height;
 #if defined(_WIN32) && defined(KRKRSDL2_USE_WIN32_EVENT_QUEUE) && defined(KRKRSDL2_ENABLE_VIDEOOVERLAY)
 	VideoOverlay->GetVideoSize( &width, &height );
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	width = MacVideoOverlay ? TVPMacVideoGetWidth(MacVideoOverlay) : 0;
 #else
 	width = 0;
 #endif
@@ -1354,6 +1684,8 @@ tjs_int tTJSNI_VideoOverlay::GetOriginalHeight()
 	long	width, height;
 #if defined(_WIN32) && defined(KRKRSDL2_USE_WIN32_EVENT_QUEUE) && defined(KRKRSDL2_ENABLE_VIDEOOVERLAY)
 	VideoOverlay->GetVideoSize( &width, &height );
+#elif defined(KRKRSDL2_MACOS_VIDEO_OVERLAY)
+	height = MacVideoOverlay ? TVPMacVideoGetHeight(MacVideoOverlay) : 0;
 #else
 	height = 0;
 #endif
@@ -1402,4 +1734,3 @@ tTJSNativeClass * TVPCreateNativeClass_VideoOverlay()
 	return new tTJSNC_VideoOverlay();
 }
 //---------------------------------------------------------------------------
-

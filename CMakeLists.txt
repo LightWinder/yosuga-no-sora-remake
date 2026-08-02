@@ -116,8 +116,13 @@ set(IOS_RESOURCES_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/ios CACHE FILEP
 endif()
 
 if(APPLE AND NOT IOS)
+enable_language(OBJCXX)
 set(MACOS_RESOURCES_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/macos CACHE FILEPATH "The path to the resources for macOS.")
 add_compile_options(-Wno-declaration-after-statement)
+list(APPEND KRKRSDL2_CFLAGS
+	-include
+	${CMAKE_CURRENT_SOURCE_DIR}/src/config/macos_zlib_byte.h
+)
 endif()
 
 if(VITA)
@@ -143,6 +148,13 @@ set(KRKRSDL2_SRC "")
 set(KRKRSDL2_INCLUDES "")
 set(KRKRSDL2COMMON_SRC "")
 set(KRKRSDL2COMMON_INCLUDES "")
+
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+	${CMAKE_CURRENT_SOURCE_DIR}/src/config/src_list/kirikirisdl2/sources.txt
+	${CMAKE_CURRENT_SOURCE_DIR}/src/config/src_list/kirikirisdl2/sources_sse2.txt
+	${CMAKE_CURRENT_SOURCE_DIR}/src/config/src_list/kirikirisdl2/sources_avx2.txt
+	${CMAKE_CURRENT_SOURCE_DIR}/src/config/src_list/kirikirisdl2/includes.txt
+)
 
 file(STRINGS src/config/src_list/kirikirisdl2/sources.txt KIRIKIRISDL2_SRC)
 file(STRINGS src/config/src_list/kirikirisdl2/sources_sse2.txt KIRIKIRISDL2_SSE2_SRC)
@@ -396,6 +408,35 @@ list(APPEND KRKRSDL2COMMON_INCLUDES
 )
 endif()
 
+if(APPLE AND NOT IOS)
+list(APPEND KRKRSDL2COMMON_SRC
+	src/core/visual/macos/MacVideoOverlay.mm
+)
+list(APPEND KRKRSDL2COMMON_INCLUDES
+	src/core/visual/macos
+)
+set_source_files_properties(
+	src/core/visual/macos/MacVideoOverlay.mm
+	PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
+)
+if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.16.0")
+set_source_files_properties(
+	src/core/visual/macos/MacVideoOverlay.mm
+	PROPERTIES SKIP_PRECOMPILE_HEADERS ON
+)
+endif()
+find_library(COCOA_FRAMEWORK Cocoa)
+find_library(AVFOUNDATION_FRAMEWORK AVFoundation)
+find_library(COREMEDIA_FRAMEWORK CoreMedia)
+find_library(QUARTZCORE_FRAMEWORK QuartzCore)
+list(APPEND KRKRSDL2_LIBS
+	${COCOA_FRAMEWORK}
+	${AVFOUNDATION_FRAMEWORK}
+	${COREMEDIA_FRAMEWORK}
+	${QUARTZCORE_FRAMEWORK}
+)
+endif()
+
 list(APPEND KRKRSDL2_CXXFLAGS ${KRKRSDL2_CFLAGS})
 
 list(APPEND KRKRSDL2_CXXFLAGS
@@ -582,6 +623,9 @@ set_target_properties(${KRKRSDL2COMMON_NAME} PROPERTIES POSITION_INDEPENDENT_COD
 endif()
 set_target_properties(${KRKRSDL2COMMON_NAME} PROPERTIES C_STANDARD 11)
 set_target_properties(${KRKRSDL2COMMON_NAME} PROPERTIES CXX_STANDARD 14)
+if(APPLE AND NOT IOS)
+set_target_properties(${KRKRSDL2COMMON_NAME} PROPERTIES OBJCXX_STANDARD 14)
+endif()
 target_sources(${KRKRSDL2COMMON_NAME} PRIVATE ${KRKRSDL2COMMON_SRC})
 target_compile_definitions(${KRKRSDL2COMMON_NAME} PUBLIC ${KRKRSDL2_DEFINITIONS})
 target_compile_options(${KRKRSDL2COMMON_NAME} PUBLIC $<$<COMPILE_LANGUAGE:C>:${KRKRSDL2_CFLAGS}>)
@@ -623,6 +667,27 @@ else()
 set_target_properties(${KRKRSDL2_NAME} PROPERTIES OUTPUT_NAME "krkrsdl2")
 endif()
 endif()
+
+if(NOT ANDROID)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+set(CONTENT_MANIFEST_TARGET krkrsdl2_content_manifest)
+add_custom_target(${CONTENT_MANIFEST_TARGET}
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_content_manifest.py
+		--root ${CMAKE_CURRENT_SOURCE_DIR}/data
+		--output ${CMAKE_CURRENT_SOURCE_DIR}/data/content-manifest.json
+		--config ${CMAKE_CURRENT_SOURCE_DIR}/content-packs.json
+		--cache ${CMAKE_CURRENT_BINARY_DIR}/content-manifest-cache.json
+		--quiet
+	DEPENDS
+		${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_content_manifest.py
+		${CMAKE_CURRENT_SOURCE_DIR}/content-packs.json
+	COMMENT "Generating incremental content manifest"
+	VERBATIM
+)
+add_dependencies(${KRKRSDL2_NAME} ${CONTENT_MANIFEST_TARGET})
+endif()
+
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
 set_target_properties(${KRKRSDL2_NAME} PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 endif()

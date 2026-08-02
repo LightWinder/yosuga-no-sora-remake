@@ -381,6 +381,7 @@ public:
 	virtual void UpdateOverlay() = 0;
 #endif
 	virtual TVPSDLBitmapCompletion *GetTVPSDLBitmapCompletion() = 0;
+	virtual void *GetNativeWindowHandle() const = 0;
 #ifdef KRKRZ_ENABLE_CANVAS
 	virtual void SetOpenGLScreen(tTVPOpenGLScreen *s) = 0;
 	virtual void SetSwapInterval(int interval) = 0;

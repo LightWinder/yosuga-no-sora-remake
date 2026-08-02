@@ -2065,6 +2065,7 @@ void tTVPWaveSoundBufferDecodeThread::Continue()
 //---------------------------------------------------------------------------
 tjs_int tTJSNI_WaveSoundBuffer::GlobalVolume = 100000;
 tTVPSoundGlobalFocusMode tTJSNI_WaveSoundBuffer::GlobalFocusMode = sgfmNeverMute;
+extern tTVPWaveDecoder *TVPCreateOggVorbisDecoder(const ttstr &storagename);
 //---------------------------------------------------------------------------
 tTJSNI_WaveSoundBuffer::tTJSNI_WaveSoundBuffer()
 {
@@ -3205,7 +3206,13 @@ void tTJSNI_WaveSoundBuffer::Open(const ttstr & storagename)
 
 	Clear();
 
-	Decoder = TVPCreateWaveDecoder(storagename);
+	ttstr extension(TVPExtractStorageExt(storagename));
+	extension.ToLowerCase();
+	if(extension == TJS_W(".ogg"))
+		Decoder = TVPCreateOggVorbisDecoder(storagename);
+	else
+		Decoder = TVPCreateWaveDecoder(storagename);
+	if(!Decoder) TVPThrowExceptionMessage(TVPUnknownWaveFormat, storagename);
 
 	try
 	{
@@ -3738,4 +3745,3 @@ TJS_END_NATIVE_PROP_DECL_OUTER(cls, useVisBuffer)
 	return cls;
 }
 //---------------------------------------------------------------------------
-

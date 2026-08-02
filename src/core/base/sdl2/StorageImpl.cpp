@@ -28,6 +28,9 @@
 #include "FilePathUtil.h"
 #include "TickCount.h"
 
+#include <algorithm>
+#include <vector>
+
 #ifndef _WIN32
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -47,6 +50,123 @@
 #include <android/configuration.h>
 #include <android/asset_manager_jni.h>
 #include "AndroidAssetManager.h"
+#endif
+
+#if defined(__ANDROID__)
+namespace
+{
+bool AndroidContentManifestLoadAttempted = false;
+bool AndroidContentManifestLoaded = false;
+std::vector<std::string> AndroidContentManifestPaths;
+
+bool AndroidLoadContentManifest(AAssetManager *asset_manager)
+{
+	if (AndroidContentManifestLoadAttempted) return AndroidContentManifestLoaded;
+	AndroidContentManifestLoadAttempted = true;
+
+	if (asset_manager == NULL) return false;
+
+	tjs_uint64 start_tick = TVPGetTickCount();
+	AAsset *asset = AAssetManager_open(
+		asset_manager, "data/content-manifest.json", AASSET_MODE_BUFFER);
+	if (asset == NULL)
+	{
+		TVPAddLog(TJS_W("(info) Android content manifest unavailable; using asset directory enumeration."));
+		return false;
+	}
+
+	off_t asset_length = AAsset_getLength(asset);
+	if (asset_length <= 0 || asset_length > 64 * 1024 * 1024)
+	{
+		AAsset_close(asset);
+		TVPAddLog(TJS_W("(info) Android content manifest has an invalid size; using asset directory enumeration."));
+		return false;
+	}
+
+	std::string manifest(static_cast<size_t>(asset_length), '\0');
+	size_t total_read = 0;
+	while (total_read < manifest.size())
+	{
+		int read_size = AAsset_read(
+			asset, &manifest[total_read], manifest.size() - total_read);
+		if (read_size <= 0) break;
+		total_read += static_cast<size_t>(read_size);
+	}
+	AAsset_close(asset);
+
+	if (total_read != manifest.size())
+	{
+		TVPAddLog(TJS_W("(info) Android content manifest could not be read completely; using asset directory enumeration."));
+		return false;
+	}
+
+	// The generator validates portable paths, so path values cannot contain a
+	// quote or backslash. This lets us extract the UTF-8 path field without a
+	// general-purpose JSON parser while still consuming content-manifest.json
+	// as the single source of truth.
+	const std::string marker("\"path\": \"");
+	size_t cursor = 0;
+	while ((cursor = manifest.find(marker, cursor)) != std::string::npos)
+	{
+		size_t path_begin = cursor + marker.size();
+		size_t path_end = manifest.find('"', path_begin);
+		if (path_end == std::string::npos)
+		{
+			AndroidContentManifestPaths.clear();
+			return false;
+		}
+		AndroidContentManifestPaths.push_back(
+			manifest.substr(path_begin, path_end - path_begin));
+		cursor = path_end + 1;
+	}
+
+	AndroidContentManifestLoaded = !AndroidContentManifestPaths.empty();
+	if (AndroidContentManifestLoaded)
+	{
+		TVPAddLog(ttstr(TJS_W("(info) Android content manifest indexed ")) +
+			ttstr(static_cast<tjs_int>(AndroidContentManifestPaths.size())) +
+			TJS_W(" asset(s). (") +
+			ttstr(static_cast<tjs_int>(TVPGetTickCount() - start_tick)) +
+			TJS_W("ms)"));
+	}
+	else
+	{
+		TVPAddLog(TJS_W("(info) Android content manifest contains no asset paths; using asset directory enumeration."));
+	}
+	return AndroidContentManifestLoaded;
+}
+
+bool AndroidListAssetsFromContentManifest(
+	AAssetManager *asset_manager, const std::string &local_name,
+	iTVPStorageLister *lister)
+{
+	if (!AndroidLoadContentManifest(asset_manager)) return false;
+
+	std::string prefix(local_name);
+	while (!prefix.empty() && prefix[0] == '/') prefix.erase(prefix.begin());
+	// Android packages the repository's content root as assets/data/, while
+	// manifest paths are intentionally relative to that cross-platform root.
+	if (prefix.compare(0, 5, "data/") == 0) prefix.erase(0, 5);
+	else if (prefix == "data") prefix.clear();
+	if (!prefix.empty() && prefix[prefix.size() - 1] != '/') prefix += '/';
+
+	std::vector<std::string>::const_iterator item = std::lower_bound(
+		AndroidContentManifestPaths.begin(), AndroidContentManifestPaths.end(), prefix);
+	bool matched = false;
+	for (; item != AndroidContentManifestPaths.end(); ++item)
+	{
+		if (item->compare(0, prefix.size(), prefix) != 0) break;
+		std::string filename = item->substr(prefix.size());
+		if (filename.empty() || filename.find('/') != std::string::npos) continue;
+
+		tjs_string wide_filename;
+		if (!TVPUtf8ToUtf16(wide_filename, filename)) continue;
+		lister->Add(ttstr(wide_filename));
+		matched = true;
+	}
+	return matched;
+}
+}
 #endif
 
 //---------------------------------------------------------------------------
@@ -93,8 +213,9 @@ public:
 void TJS_INTF_METHOD tTVPFileMedia::NormalizeDomainName(ttstr &name)
 {
 	// normalize domain name
-	// make all characters small
-#ifdef KRKRZ_CASE_INSENSITIVE
+	// Only fold case when the native filesystem itself is case-insensitive.
+	// POSIX platforms resolve the real spelling in GetLocallyAccessibleName().
+#if defined(KRKRZ_CASE_INSENSITIVE) && defined(_WIN32)
 	tjs_char *p = name.Independ();
 	while(*p)
 	{
@@ -107,10 +228,10 @@ void TJS_INTF_METHOD tTVPFileMedia::NormalizeDomainName(ttstr &name)
 //---------------------------------------------------------------------------
 void TJS_INTF_METHOD tTVPFileMedia::NormalizePathName(ttstr &name)
 {
-	// 非Windows環境では大文字小文字区別する実装の方が良いか？
 	// normalize path name
-	// make all characters small
-#ifdef KRKRZ_CASE_INSENSITIVE
+	// Keep the real spelling on case-sensitive filesystems. Case-insensitive
+	// lookup is handled without destroying it by GetLocallyAccessibleName().
+#if defined(KRKRZ_CASE_INSENSITIVE) && defined(_WIN32)
 	tjs_char *p = name.Independ();
 	while(*p)
 	{
@@ -216,15 +337,6 @@ void TJS_INTF_METHOD tTVPFileMedia::GetListAt(const ttstr &_name, iTVPStorageLis
 #endif
 					fname[count] = TJS_W('\0');
 					ttstr file(fname);
-#ifdef KRKRZ_CASE_INSENSITIVE
-					tjs_char *p = file.Independ();
-					while(*p) {
-						// make all characters small
-						if(*p >= TJS_W('A') && *p <= TJS_W('Z'))
-							*p += TJS_W('a') - TJS_W('A');
-						p++;
-					}
-#endif
 					lister->Add(file);
 				}
 				// entry->d_type == DT_UNKNOWN
@@ -237,6 +349,12 @@ void TJS_INTF_METHOD tTVPFileMedia::GetListAt(const ttstr &_name, iTVPStorageLis
 		}
 #if defined(__ANDROID__)
 		// Skip the leading slash.
+		else if (asset_manager != NULL && nname.length() > 0 && nname[0] == '/' &&
+			AndroidListAssetsFromContentManifest(asset_manager, nname, lister))
+		{
+			// Served from the build-generated manifest. This avoids the very slow
+			// AAssetManager directory walk on older Android releases.
+		}
 		else if ( asset_manager != NULL && nname.length() > 0 && nname[0] == '/' && (AndroidAssetManager_Check_Directory_Existent(asset_manager, nname.c_str() + 1)) && (android_dr = AAssetManager_openDir( asset_manager, nname.c_str() + 1 )) )
 		{
 			const char* filename = nullptr;
@@ -247,15 +365,6 @@ void TJS_INTF_METHOD tTVPFileMedia::GetListAt(const ttstr &_name, iTVPStorageLis
 					tjs_int count = TVPUtf8ToWideCharString( filename, fname );
 					fname[count] = TJS_W('\0');
 					ttstr file( fname );
-#ifdef KRKRZ_CASE_INSENSITIVE
-					tjs_char *p = file.Independ();
-					while(*p) {
-						// make all characters small
-						if(*p >= TJS_W('A') && *p <= TJS_W('Z'))
-							*p += TJS_W('a') - TJS_W('A');
-						p++;
-					}
-#endif
 					lister->Add( file );
 				}
 			} while( filename );
@@ -343,6 +452,31 @@ void TJS_INTF_METHOD tTVPFileMedia::GetLocallyAccessibleName(ttstr &name)
 
 #if defined(__ANDROID__)
 	AAssetManager *asset_manager = AndroidAssetManager_Get_AssetManager();
+
+	// Android APK assets are case-sensitive and already use the exact spelling
+	// emitted by the content pipeline.  Walking every path component through
+	// AAssetManager_openDir() is both unnecessary and extremely expensive for a
+	// large APK (this project contains more than 23,000 assets).  Keep the
+	// leading slash expected by the existing AAssetManager/SDL fallbacks, but
+	// otherwise pass project-relative asset paths through unchanged.
+	if (nname.length() >= 2 && nname[0] == '.' &&
+		(nname[1] == '/' || nname[1] == '\\'))
+	{
+		std::string asset_name(nname.begin() + 2, nname.end());
+		for (std::string::iterator i = asset_name.begin(); i != asset_name.end(); ++i)
+		{
+			if (*i == '\\') *i = '/';
+		}
+		std::string local_asset_name = "/" + asset_name;
+		tjs_string wide_asset_name;
+		if (!TVPUtf8ToUtf16(wide_asset_name, local_asset_name))
+		{
+			name.Clear();
+			return;
+		}
+		name = ttstr(wide_asset_name);
+		return;
+	}
 #endif
 
 	std::string nnewname;
@@ -792,12 +926,8 @@ bool TVPCheckExistentLocalFolder(const ttstr &name)
 		// Skip the leading slash.
 		if (asset_manager != NULL && filename.length() > 0 && filename[0] == '/')
 		{
-			AAssetDir* asset = AAssetManager_openDir( asset_manager, filename.c_str() + 1 );
 			bool result = AndroidAssetManager_Check_Directory_Existent(asset_manager, filename.c_str() + 1);
-			if ( result )
-			{
-				return result;
-			}
+			if (result) return true;
 		}
 #endif
 	}
@@ -1658,4 +1788,3 @@ TJS_END_NATIVE_STATIC_METHOD_DECL_OUTER(/*object to register*/cls,
 
 }
 //---------------------------------------------------------------------------
-

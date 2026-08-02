@@ -22,6 +22,10 @@
 
 #include "NativeEventQueue.h"
 
+#if defined(__APPLE__) && !defined(__IPHONEOS__)
+#define KRKRSDL2_MACOS_VIDEO_OVERLAY 1
+#endif
+
 //---------------------------------------------------------------------------
 // tTJSNI_VideoOverlay : VideoOverlay Native Instance
 //---------------------------------------------------------------------------
@@ -31,9 +35,16 @@ class tTJSNI_VideoOverlay : public tTJSNI_BaseVideoOverlay
 	typedef tTJSNI_BaseVideoOverlay inherited;
 
 	iTVPVideoOverlay *VideoOverlay;
+#ifdef KRKRSDL2_MACOS_VIDEO_OVERLAY
+	void *MacVideoOverlay;
+#endif
 
 	tTVPRect Rect;
 	bool Visible;
+
+#ifdef __ANDROID__
+	bool AndroidVideoOpen;
+#endif
 
 #ifdef _WIN32
 	HWND OwnerWindow;
@@ -69,6 +80,12 @@ public:
 		iTJSDispatch2 *tjs_obj);
 	void TJS_INTF_METHOD Invalidate();
 
+#ifdef KRKRSDL2_MACOS_VIDEO_OVERLAY
+	void MacPlaybackFinished();
+#endif
+#ifdef __ANDROID__
+	void AndroidPlaybackFinished();
+#endif
 
 public:
 	void Open(const ttstr &name);
