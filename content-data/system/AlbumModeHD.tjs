@@ -1,0 +1,823 @@
+// HD CG appreciation scene (schematic1).
+// Loaded after Album.tjs; replaces AlbumModeScene.
+
+class AlbumModeScene extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase
+{
+	var _adv;
+	var _base;
+	var _list;
+
+	var _btnChar = [];
+	var _grid;
+	var _thumbBase = [];
+	var _btnThumb = [];
+	var _nav;
+	var _btnPagePrev;
+	var _btnPageNext;
+
+	var _previewSrc;
+	var _thumbSrc;
+
+	var _selChar = 0;
+	var _selPage = 0;
+	var _pageCount = [];
+	var _charVisible = [];
+
+	var _viewEnter = false;
+	var _viewIndex = 0;
+	var _viewDiff = 0;
+	var _viewType = 0;
+	var _tgtChar = 0;
+	var _tgtChkList = null;
+	var _tgtCgList = null;
+	var _prevCg = "";
+	var _tempEventCamera;
+	var _pageAnimating = false;
+	var _pendingPage = -1;
+	var _pageDirection = 0;
+
+	var UI_ROOT = "ui_1920/appreciation/";
+
+	// Schematic1: 4x2, 416x234 content, 12px gap; frame asset is 430x250
+	var FRAME_W = 430;
+	var FRAME_H = 250;
+	var THUMB_W = 416;
+	var THUMB_H = 234;
+	// cg_preview's visible card is 420x238 with a 10px drop shadow.
+	// Its transparent inner opening is exactly 416x234 at (2, 2).
+	var THUMB_INSET_X = 2;
+	var THUMB_INSET_Y = 2;
+	var GAP_X = 12;
+	var GAP_Y = 12;
+	var COLS = 4;
+	var ROWS = 2;
+	var MAX_THUMB = 8;
+
+	var TAG_FILES = [
+		"sora.png", "nao.png", "akira.png",
+		"kazuha.png", "motoka.png", "others.png"
+	];
+	var TAG_W = 142;
+	var TAG_H = 56;
+	var TAG_GAP = 9;
+	var TAG_Y = 295;
+	var TAG_TO_GRID = 20;
+
+	var PAGE_BUTTON_W = 45;
+	var PAGE_BUTTON_H = 66;
+	var PAGE_BUTTON_MARGIN = 12;
+	var PAGE_SLIDE_DISTANCE = 320;
+	var PAGE_SLIDE_TIME = 240;
+
+	var PREVIEW_NORMAL = 0;
+	var PREVIEW_HOVER = 1;
+	var PREVIEW_LOCKED = 2;
+
+	function createPageButton(button, mirror)
+	{
+		var source = new global.Layer(window, _base);
+		source.loadImages(UI_ROOT + "pgup.png");
+		source.setSizeToImageSize();
+		source.visible = false;
+
+		// pgup.png is tightly packed with variable-width states rather than
+		// four equal cells: 0..38, 39..83, 84..128, 129..168.
+		// Rebuild the three states we need in equal 45 px cells.
+		var sourceX = [39, 84, 129];
+		var sourceW = [45, 45, 40];
+		var atlas = new global.Layer(window, _base);
+		atlas.setImageSize(PAGE_BUTTON_W * 3, PAGE_BUTTON_H);
+		atlas.setSize(PAGE_BUTTON_W * 3, PAGE_BUTTON_H);
+		atlas.fillRect(0, 0, PAGE_BUTTON_W * 3, PAGE_BUTTON_H, 0x00000000);
+		atlas.visible = false;
+
+		for(var i = 0; i < 3; i++)
+		{
+			var cell = new global.Layer(window, _base);
+			cell.setImageSize(PAGE_BUTTON_W, PAGE_BUTTON_H);
+			cell.setSize(PAGE_BUTTON_W, PAGE_BUTTON_H);
+			cell.fillRect(0, 0, PAGE_BUTTON_W, PAGE_BUTTON_H, 0x00000000);
+			var inset = (PAGE_BUTTON_W - sourceW[i]) \ 2;
+			cell.copyRect(inset, 0, source, sourceX[i], 0,
+				sourceW[i], PAGE_BUTTON_H);
+			if(mirror) cell.flipLR();
+			atlas.copyRect(i * PAGE_BUTTON_W, 0, cell, 0, 0,
+				PAGE_BUTTON_W, PAGE_BUTTON_H);
+			invalidate cell;
+		}
+
+		button.create(atlas, 3);
+		invalidate atlas;
+		invalidate source;
+	}
+
+	function clipThumbCorners(dst)
+	{
+		var radius = 20;
+		for(var row = 0; row < radius; row++)
+		{
+			var dy = radius - row - 0.5;
+			var inset = int(radius - Math.sqrt(radius * radius - dy * dy) + 0.999);
+			if(inset <= 0) continue;
+
+			var top = THUMB_INSET_Y + row;
+			var bottom = THUMB_INSET_Y + THUMB_H - 1 - row;
+			var right = THUMB_INSET_X + THUMB_W - inset;
+			dst.fillRect(THUMB_INSET_X, top, inset, 1, 0x00000000);
+			dst.fillRect(right, top, inset, 1, 0x00000000);
+			dst.fillRect(THUMB_INSET_X, bottom, inset, 1, 0x00000000);
+			dst.fillRect(right, bottom, inset, 1, 0x00000000);
+		}
+	}
+
+	function AlbumModeScene(win, par)
+	{
+		Sprite(...);
+		hasImage = false;
+		setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+		setPos(0, 0);
+		hitThreshold = 0;
+		absolute = LAYER_APPRECIATION;
+		opacity = 255;
+		visible = true;
+
+		_base = new global.SelectItemGroupSprite(win, this);
+		with(_base)
+		{
+			.hasImage = true;
+			.setImageSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+			.setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+			.fillRect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, 0xFF6080A0);
+			.setPos(0, 0);
+			.visible = true;
+			.opacity = 255;
+		}
+
+		if(Storages.isExistentStorage(UI_ROOT + "bg.png"))
+		{
+			_base.loadImages(UI_ROOT + "bg.png");
+			_base.setSizeToImageSize();
+			_base.setPos(0, 0);
+		}
+
+		_adv = new ADVScreen(win, LAYER_ADVSCREEN, LAYER_ADVMESSAGE);
+		_adv.visible = false;
+
+		_list = Scripts.evalStorage("CgModeList.tjs");
+
+		_previewSrc = new global.Layer(win, _base);
+		with(_previewSrc)
+		{
+			.loadImages(UI_ROOT + "cg_preview.png");
+			.setSizeToImageSize();
+			.visible = false;
+			.hitThreshold = 256;
+		}
+
+		_thumbSrc = new global.Layer(win, this);
+		with(_thumbSrc)
+		{
+			.visible = false;
+			.hitThreshold = 256;
+		}
+
+		// Only the card grid moves during page changes. Character tabs,
+		// navigation arrows, background and bottom navigation stay fixed.
+		_grid = new global.SelectItemGroupSprite(win, _base, this);
+		with(_grid)
+		{
+			.hasImage = false;
+			.setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+			.setPos(0, 0);
+			.visible = true;
+			.opacity = 255;
+			.hitThreshold = 256;
+		}
+
+		var gridW = COLS * FRAME_W + (COLS - 1) * GAP_X;
+		var gridH = ROWS * FRAME_H + (ROWS - 1) * GAP_Y;
+		var originX = (WINDOW_WIDTH - gridW) \ 2;
+		// nametag：与缩略图网格左对齐（示意图），间距 TAG_GAP=9
+		var tagX = originX;
+		var originY = TAG_Y + TAG_H + TAG_TO_GRID;
+
+		var i;
+		var charCount = TAG_FILES.count;
+		if(_list.count < charCount) charCount = _list.count;
+
+		for(i = 0; i < charCount; i++)
+		{
+			_btnChar[i] = new Button(win, _base);
+			_btnChar[i].create(UI_ROOT + TAG_FILES[i], 3);
+			_btnChar[i].hitThreshold = 0;
+			_btnChar[i].setPos(tagX + i * (TAG_W + TAG_GAP), TAG_Y);
+			_charVisible[i] = true;
+
+			var num = 1;
+			if(_list[i].cg !== void)
+			{
+				num = _list[i].cg.count \ MAX_THUMB;
+				if(_list[i].cg.count % MAX_THUMB) num++;
+			}
+			if(num < 1) num = 1;
+			_pageCount[i] = num;
+		}
+
+		for(i = 0; i < MAX_THUMB; i++)
+		{
+			var col = i % COLS;
+			var row = i \ COLS;
+			var x = originX + col * (FRAME_W + GAP_X);
+			var y = originY + row * (FRAME_H + GAP_Y);
+
+			_thumbBase[i] = new global.Layer(win, _grid);
+			with(_thumbBase[i])
+			{
+				.setImageSize(FRAME_W, FRAME_H);
+				.setSize(FRAME_W, FRAME_H);
+				.fillRect(0, 0, FRAME_W, FRAME_H, 0x00000000);
+				.setPos(x, y);
+				.visible = true;
+				.hitThreshold = 256;
+			}
+
+			_btnThumb[i] = new Button(win, _grid);
+			with(_btnThumb[i])
+			{
+				.setImageSize(FRAME_W, FRAME_H);
+				.setSize(FRAME_W, FRAME_H);
+				.fillRect(0, 0, FRAME_W, FRAME_H, 0x00000000);
+				.setPos(x, y);
+				.hitThreshold = 0;
+				.visible = true;
+			}
+		}
+
+		_btnPagePrev = new Button(win, _base);
+		createPageButton(_btnPagePrev, true);
+		_btnPagePrev.hitThreshold = 0;
+		_btnPagePrev.setPos(PAGE_BUTTON_MARGIN,
+			originY + gridH \ 2 - _btnPagePrev.height \ 2);
+
+		_btnPageNext = new Button(win, _base);
+		createPageButton(_btnPageNext, false);
+		_btnPageNext.hitThreshold = 0;
+		_btnPageNext.setPos(WINDOW_WIDTH - PAGE_BUTTON_MARGIN - _btnPageNext.width,
+			originY + gridH \ 2 - _btnPageNext.height \ 2);
+
+		_nav = new AppreciationBottomNav(win, _base, this, SCENE_ALBUM);
+
+		setPage(0, 0);
+		setInput(false);
+
+		PlayBgm("BGM17");
+
+		_tempEventCamera = CONFIG.eventCamera;
+		CONFIG.eventCamera = 1;
+
+		mouseTrackingMode = global.ChainItemBase.MOUSETRACKINGMODE_FREE;
+		window.addInputNotify(this);
+	}
+
+	function finalize()
+	{
+		window.removeInputNotify(this);
+		CONFIG.eventCamera = _tempEventCamera;
+
+		invalidate _list;
+		InvalidateArray(_btnChar);
+		InvalidateArray(_btnThumb);
+		InvalidateArray(_thumbBase);
+		invalidate _grid;
+		invalidate _btnPagePrev;
+		invalidate _btnPageNext;
+		if(_nav !== void) _nav.finalize();
+		invalidate _nav;
+		invalidate _previewSrc;
+		invalidate _thumbSrc;
+		invalidate _adv;
+		invalidate _base;
+
+		global.Sprite.finalize();
+		global.ChainItemBase.finalize();
+	}
+
+	function who(){ return "AlbumModeScene"; }
+
+	function blitPreview(dst, state)
+	{
+		if(dst === void || _previewSrc === void) return;
+		var srcX = state * FRAME_W;
+		dst.fillRect(0, 0, FRAME_W, FRAME_H, 0x00000000);
+		dst.copyRect(0, 0, _previewSrc, srcX, 0, FRAME_W, FRAME_H);
+	}
+
+	function paintThumb(slot, unlocked, hover)
+	{
+		if(slot < 0 || slot >= MAX_THUMB) return;
+		if(unlocked)
+		{
+			_thumbBase[slot].fillRect(0, 0, FRAME_W, FRAME_H, 0x00000000);
+
+			var index = _selPage * MAX_THUMB + slot;
+			if(_tgtChkList === void || index >= _tgtChkList.count) return;
+			var base = _tgtChkList[index][0].substring(0, 4);
+			try
+			{
+				// Event CGs have native 1920x1080 assets in event_1920.
+				// Load the first actual CG in the group so the 16:9 preview
+				// stays sharp and correctly proportioned.
+				if(_viewType == 0)
+					_thumbSrc.loadImages(_tgtChkList[index][0]);
+				else
+					_thumbSrc.loadImages(base + "TL");
+				_thumbSrc.setSizeToImageSize();
+				_thumbBase[slot].stretchCopy(
+					THUMB_INSET_X, THUMB_INSET_Y, THUMB_W, THUMB_H,
+					_thumbSrc, 0, 0, _thumbSrc.imageWidth, _thumbSrc.imageHeight,
+					stFastLinear);
+			}
+			catch
+			{
+				try
+				{
+					_thumbSrc.loadImages("dummyTL");
+					_thumbSrc.setSizeToImageSize();
+					_thumbBase[slot].stretchCopy(
+						THUMB_INSET_X, THUMB_INSET_Y, THUMB_W, THUMB_H,
+						_thumbSrc, 0, 0, _thumbSrc.imageWidth, _thumbSrc.imageHeight,
+						stFastLinear);
+				}
+				catch {}
+			}
+
+			// Keep the CG and its frame on separate layers. This preserves the
+			// transparent opening in cg_preview and keeps the frame on top.
+			clipThumbCorners(_thumbBase[slot]);
+			if(hover) blitPreview(_btnThumb[slot], PREVIEW_HOVER);
+			else blitPreview(_btnThumb[slot], PREVIEW_NORMAL);
+		}
+		else
+		{
+			_thumbBase[slot].fillRect(0, 0, FRAME_W, FRAME_H, 0x00000000);
+			blitPreview(_btnThumb[slot], PREVIEW_LOCKED);
+		}
+	}
+
+	function setPage(char, page)
+	{
+		if(char < 0 || char >= _btnChar.count) return;
+		if(page < 0) page = 0;
+		if(page >= _pageCount[char]) page = _pageCount[char] - 1;
+
+		_selChar = char;
+		_selPage = page;
+		_tgtChar = char;
+		_tgtCgList = _list[char].cg;
+		_viewType = 0;
+		_tgtChkList = _list[char].cg;
+
+		if(_list[char].bustupview !== void)
+		{
+			_viewType = 1;
+			_tgtChkList = _list[char].bustup;
+			_tgtCgList = _list[char].cg;
+		}
+
+		var i;
+		for(i = 0; i < _btnChar.count; i++)
+		{
+			if(!_charVisible[i])
+			{
+				_btnChar[i].visible = false;
+				continue;
+			}
+			_btnChar[i].visible = true;
+			_btnChar[i].ptnNormal = (i == char) ? 2 : 0;
+			_btnChar[i].ptnFocus = (i == char) ? 2 : 1;
+			_btnChar[i].setButton(_btnChar[i].ptnNormal);
+			_btnChar[i].opacity = (i == char) ? 255 : 190;
+		}
+
+		var num = _tgtChkList.count;
+		var index = page * MAX_THUMB;
+
+		for(i = 0; i < MAX_THUMB; i++)
+		{
+			if(index + i >= num)
+			{
+				_thumbBase[i].visible = false;
+				_btnThumb[i].visible = false;
+				_btnThumb[i].valid = false;
+				continue;
+			}
+
+			_thumbBase[i].visible = true;
+			_btnThumb[i].visible = true;
+
+			var base = _tgtChkList[index + i][0].substring(0, 4);
+			var flag = CG_FLAG_LIST[base];
+			var unlocked = (flag !== void && ChkCgFlag(flag));
+			paintThumb(i, unlocked, false);
+			_btnThumb[i].valid = unlocked;
+		}
+
+		updatePageButtons();
+	}
+
+	function beginPageSlide(page)
+	{
+		if(_pageAnimating || _viewEnter) return;
+		if(page < 0 || page >= _pageCount[_selChar]) return;
+		if(page == _selPage) return;
+
+		_pageAnimating = true;
+		_pendingPage = page;
+		_pageDirection = (page > _selPage) ? 1 : -1;
+		removeChainItemAll();
+
+		setPage(_selChar, _pendingPage);
+
+		var startX = _pageDirection * PAGE_SLIDE_DISTANCE;
+		_grid.setPos(startX, 0);
+		_grid.opacity = 255;
+		_grid.setTransitionCompleteCall(onPageSlideComplete);
+		_grid.setMovingEnvelope(startX, 0, 0, 0, 2);
+		_grid.beginActivation(PAGE_SLIDE_TIME);
+	}
+
+	function onPageSlideComplete()
+	{
+		_grid.setTransitionCompleteCall();
+		_grid.setPos(0, 0);
+		_grid.opacity = 255;
+		_pendingPage = -1;
+		_pageDirection = 0;
+		_pageAnimating = false;
+		setInput(false);
+		window.flushMouseTracking();
+	}
+
+	function updatePageButtons()
+	{
+		var pages = _pageCount[_selChar];
+		_btnPagePrev.visible = (pages > 1);
+		_btnPageNext.visible = (pages > 1);
+		_btnPagePrev.valid = (_selPage > 0);
+		_btnPageNext.valid = (_selPage < pages - 1);
+	}
+
+	function setInput(enter)
+	{
+		removeChainItemAll();
+		if(enter || _pageAnimating) return;
+
+		var i;
+		for(i = 0; i < _btnChar.count; i++)
+		{
+			if(_btnChar[i].visible) addChainItem(_btnChar[i]);
+		}
+		for(i = 0; i < MAX_THUMB; i++) addChainItem(_btnThumb[i]);
+		addChainItem(_btnPagePrev);
+		addChainItem(_btnPageNext);
+		if(_nav !== void) _nav.addToChain(this);
+	}
+
+	function show(time=300)
+	{
+		opacity = 255;
+		visible = true;
+		if(_base !== void)
+		{
+			_base.opacity = 255;
+			_base.visible = true;
+		}
+	}
+
+	function hide(time=300)
+	{
+		if(_base !== void) _base.visible = false;
+	}
+
+	function onButtonEnter(target)
+	{
+		if(_pageAnimating) return;
+		var i;
+		for(i = 0; i < MAX_THUMB; i++)
+		{
+			if(target == _btnThumb[i] && _btnThumb[i].valid)
+			{
+				// The CG is already cached on _thumbBase. Hover only swaps
+				// the lightweight frame layer; do not decode 1080p again.
+				blitPreview(_btnThumb[i], PREVIEW_HOVER);
+				return;
+			}
+		}
+	}
+
+	function onButtonLeave(target)
+	{
+		if(_pageAnimating) return;
+		var i;
+		for(i = 0; i < MAX_THUMB; i++)
+		{
+			if(target == _btnThumb[i] && _btnThumb[i].valid)
+			{
+				blitPreview(_btnThumb[i], PREVIEW_NORMAL);
+				return;
+			}
+		}
+	}
+
+	function onButtonDownL(target)
+	{
+		if(_pageAnimating) return;
+		var i;
+		for(i = 0; i < _btnChar.count; i++)
+		{
+			if(target == _btnChar[i])
+			{
+				if(_selChar == i) return;
+				setPage(i, 0);
+				return;
+			}
+		}
+
+		for(i = 0; i < MAX_THUMB; i++)
+		{
+			if(target == _btnThumb[i])
+			{
+				if(!_btnThumb[i].valid) return;
+				viewEnter(_selPage, i);
+				return;
+			}
+		}
+
+		if(target == _btnPagePrev)
+		{
+			if(_selPage > 0) beginPageSlide(_selPage - 1);
+			return;
+		}
+		if(target == _btnPageNext)
+		{
+			if(_selPage < _pageCount[_selChar] - 1) beginPageSlide(_selPage + 1);
+			return;
+		}
+		if(_nav !== void && _nav.onButtonDownL(target)) return;
+	}
+
+	function onButtonDownR(target)
+	{
+		onMouseDown(0, 0, mbRight, 0);
+	}
+
+	function viewEnter(page, index)
+	{
+		_viewEnter = true;
+		_viewIndex = page * MAX_THUMB + index;
+		_viewDiff = searchDiff(_tgtChkList, _viewIndex, 0, true);
+		if(_viewDiff < 0) { _viewEnter = false; return; }
+
+		_prevCg = "";
+		hide();
+		setInput(true);
+		_adv.visible = true;
+		presetView(0);
+	}
+
+	function viewLeave()
+	{
+		_viewEnter = false;
+		_adv.visible = false;
+		show();
+		setInput(false);
+		setPage(_selChar, _selPage);
+	}
+
+	function presetView(time=300)
+	{
+		var cg = _tgtCgList[_viewIndex][_viewDiff];
+		view(cg, time);
+	}
+
+	// Measure event_1920 CG. If size != 1920x1080, return zoom offset
+	// (fit% - 100) for letterboxed full-image display; otherwise void.
+	function getAlbumFitZoomOffsetIfNeeded(name)
+	{
+		name = name.toUpperCase();
+		var path = "event_1920/" + name + ".png";
+		if(!Storages.isExistentStorage(path)) return void;
+
+		var tmp = new global.Layer(window, this);
+		tmp.visible = false;
+		tmp.hitThreshold = 256;
+		try
+		{
+			tmp.loadImages(path);
+			tmp.setSizeToImageSize();
+			var iw = tmp.imageWidth;
+			var ih = tmp.imageHeight;
+			if(iw == WINDOW_WIDTH && ih == WINDOW_HEIGHT)
+			{
+				invalidate tmp;
+				return void;
+			}
+
+			// Contain inside the screen; never upscale above 100%.
+			var zw = (WINDOW_WIDTH * 100) \ iw;
+			var zh = (WINDOW_HEIGHT * 100) \ ih;
+			var fit = zw;
+			if(zh < fit) fit = zh;
+			if(fit > 100) fit = 100;
+			if(fit < 1) fit = 1;
+			invalidate tmp;
+			return fit - 100;
+		}
+		catch
+		{
+			invalidate tmp;
+			return void;
+		}
+	}
+
+	// EZ01-style entries need chars / actions / bgscroll. Simple SD-era
+	// camera crops (EA06/EB06/...) should show the full frame in gallery.
+	function isAlbumComplexSpecial(cg)
+	{
+		if(_list[_tgtChar][cg] === void) return false;
+		var entry = _list[_tgtChar][cg];
+		if(entry.post !== void && entry.post.count > 0) return true;
+		if(entry.pre === void) return false;
+		if(entry.pre.count != 1) return true;
+		if(entry.pre[0].tagname != "cg") return true;
+		return false;
+	}
+
+	function view(cg, time=300)
+	{
+		if(cg == null) return;
+
+		// TJS2: var is block-scoped; declare i at function scope
+		// so both pre/post loops can use it (EZ01A/EZ01B special entries).
+		var i;
+		if(isAlbumComplexSpecial(cg))
+		{
+			var ref = _list[_tgtChar][cg].pre;
+			for(i = 0; i < ref.count; i++)
+				_adv.addOrderList(ref[i]);
+			_prevCg = cg;
+		}
+		else
+		{
+			// Full-frame gallery view. Ignore SD camera crops (e.g. EA06
+			// pos:"268,-266"). Non-1920x1080 assets also get contain-zoom.
+			var fitOff = getAlbumFitZoomOffsetIfNeeded(cg);
+			if(fitOff !== void)
+				_adv.addOrderList(%[tagname:"cg", file:cg, pos:"0,0", center:-1, zoom:fitOff]);
+			else
+				_adv.addOrderList(%[tagname:"cg", file:cg, pos:"0,0", center:-1]);
+			_prevCg = cg;
+		}
+
+		_adv._update |= UPDATE_CG;
+		_adv.update(%[time:time]);
+
+		if(isAlbumComplexSpecial(cg))
+		{
+			var post = _list[_tgtChar][cg].post;
+			if(post.count)
+			{
+				for(i = 0; i < post.count; i++) _adv.addOrderList(post[i]);
+				_adv._update |= UPDATE_CG;
+				_adv.update();
+			}
+		}
+	}
+
+	function searchDiff(list, sIndex, sDiff, fForward)
+	{
+		if(sIndex < 0 || sIndex >= list.count) return -1;
+		var diff = sDiff;
+		while(0 <= diff && diff < list[sIndex].count)
+		{
+			var file = list[sIndex][diff];
+			var flag = CG_FLAG_LIST[file];
+			if(flag !== void && ChkCgFlag(flag)) return diff;
+			if(fForward) diff++; else diff--;
+		}
+		return -1;
+	}
+
+	function searchIndex(list, sIndex, fForward)
+	{
+		var index = sIndex;
+		var guard = 0;
+		while(guard < list.count + 2)
+		{
+			if(fForward)
+			{
+				if(list.count <= index) index = 0;
+			}
+			else
+			{
+				if(index < 0) index = list.count - 1;
+			}
+
+			var file = list[index][0].substring(0, 4);
+			var flag = CG_FLAG_LIST[file];
+			if(flag !== void && ChkCgFlag(flag)) return index;
+
+			if(fForward) index++; else index--;
+			guard++;
+		}
+		return sIndex;
+	}
+
+	function viewNext()
+	{
+		if((_viewDiff = searchDiff(_tgtChkList, _viewIndex, _viewDiff + 1, true)) == -1)
+		{
+			_viewIndex = searchIndex(_tgtChkList, _viewIndex + 1, true);
+			_viewDiff = searchDiff(_tgtChkList, _viewIndex, 0, true);
+		}
+		if(_viewDiff >= 0) presetView();
+	}
+
+	function viewPrev()
+	{
+		if((_viewDiff = searchDiff(_tgtChkList, _viewIndex, _viewDiff - 1, false)) == -1)
+		{
+			_viewIndex = searchIndex(_tgtChkList, _viewIndex - 1, false);
+			_viewDiff = searchDiff(_tgtChkList, _viewIndex, _tgtChkList[_viewIndex].count - 1, false);
+		}
+		if(_viewDiff >= 0) presetView();
+	}
+
+	function onMouseDown(x, y, button, shift)
+	{
+		if(_pageAnimating) return;
+		if(button == mbLeft)
+		{
+			if(_viewEnter) viewNext();
+		}
+		else if(button == mbRight)
+		{
+			if(_viewEnter) viewLeave();
+			else changeScene(SCENE_TITLE);
+		}
+	}
+
+	function onMouseWheel(shift, delta, x, y)
+	{
+		if(_pageAnimating) return;
+		if(delta < 0)
+		{
+			if(_viewEnter) viewNext();
+			else if(_selPage < _pageCount[_selChar] - 1) beginPageSlide(_selPage + 1);
+		}
+		else if(delta > 0)
+		{
+			if(_viewEnter) viewPrev();
+			else if(_selPage > 0) beginPageSlide(_selPage - 1);
+		}
+	}
+
+	function onKeyDown(key, shift)
+	{
+		if(_pageAnimating) return;
+		if(key == VK_ESCAPE)
+		{
+			if(_viewEnter) viewLeave();
+			else changeScene(SCENE_TITLE);
+		}
+		else if(key == VK_LEFT || key == VK_PRIOR)
+		{
+			if(!_viewEnter && _selPage > 0) beginPageSlide(_selPage - 1);
+		}
+		else if(key == VK_RIGHT || key == VK_NEXT)
+		{
+			if(!_viewEnter && _selPage < _pageCount[_selChar] - 1)
+				beginPageSlide(_selPage + 1);
+		}
+		global.ChainItemBase.onKeyDown(...);
+	}
+
+	function close()
+	{
+		valid = false;
+	}
+
+	function changeScene(scene)
+	{
+		HitThresholdSelectItems(_btnThumb, 256);
+		HitThresholdSelectItems(_btnChar, 256);
+		if(_btnPagePrev !== void) _btnPagePrev.hitThreshold = 256;
+		if(_btnPageNext !== void) _btnPageNext.hitThreshold = 256;
+		if(_nav !== void) _nav.disableHits();
+		if(_adv !== void) _adv.visible = false;
+		var param = %[];
+		if(scene == SCENE_TITLE) param = %[submenu:1];
+		game.changeScene(scene, true, param);
+		close();
+	}
+}

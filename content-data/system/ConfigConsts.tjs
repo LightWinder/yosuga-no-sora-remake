@@ -1,0 +1,69 @@
+var HD_SETTINGS_ROOT = "ui_1920/settings/";
+var HD_GRAPHIC_ROOT = HD_SETTINGS_ROOT + "graphic/";
+var HD_SYSTEM_ROOT = HD_SETTINGS_ROOT + "system/";
+var HD_VOICE_ROOT = HD_SETTINGS_ROOT + "voices/";
+var HD_VOICE_PORTRAIT_ROOT = HD_VOICE_ROOT + "立绘/";
+
+var HD_WINDOW_WIDTH_1080P = 1920;
+var HD_WINDOW_WIDTH_900P = 1600;
+var HD_WINDOW_WIDTH_720P = 1280;
+var HD_WINDOW_SELECT_1080P_MIN = 1760;
+var HD_WINDOW_SELECT_900P_MIN = 1440;
+
+var HD_ON_NORMAL_WIDTH = 59;
+var HD_ON_HOVER_SOURCE_X = 59;
+var HD_ON_HOVER_WIDTH = 65;
+var HD_ON_SELECTED_OFFSET_X = 1;
+
+var HD_OFF_NORMAL_WIDTH = 85;
+var HD_OFF_HOVER_SOURCE_X = 85;
+var HD_OFF_HOVER_WIDTH = 89;
+var HD_OFF_SELECTED_OFFSET_X = -5;
+
+var HD_SLIDER_KNOB_STORAGE = HD_SETTINGS_ROOT + "slider_knob.png";
+var HD_ON_NORMAL_STORAGE = HD_GRAPHIC_ROOT + "ON1.png";
+var HD_ON_SELECTED_STORAGE = HD_GRAPHIC_ROOT + "ON2.png";
+var HD_OFF_NORMAL_STORAGE = HD_GRAPHIC_ROOT + "OFF1.png";
+var HD_OFF_SELECTED_STORAGE = HD_GRAPHIC_ROOT + "OFF2.png";
+
+// 选中态贴图（*2.png）未制作 hover，选中时不切换 hover 帧
+var HD_GRAPHIC_NO_HOVER_SELECTED = [
+    "chinese2.png",
+    "janpanese2.png",
+    "fullscreen2.png",
+    "window2.png",
+    "1080p2.png",
+    "900p2.png",
+    "720p2.png",
+    "fangzhengheiti2.png",
+    "fangzhengshusong2.png",
+    "hanchanti2.png",
+    "fangzhengkaiti2.png",
+    "fangzhengfangsong2.png",
+    "dianzhensongti2.png",
+    "ON2.png",
+    "OFF2.png"
+];
+
+function isHDGraphicNoHoverSelected(storage)
+{
+    if(storage === void || storage == "") return false;
+
+    var name = "" + storage;
+    for(var i = name.length - 1; i >= 0; i--)
+    {
+        if(name.substring(i, i + 1) == "/")
+        {
+            name = name.substring(i + 1);
+            break;
+        }
+    }
+
+    for(var j = 0; j < HD_GRAPHIC_NO_HOVER_SELECTED.count; j++)
+    {
+        if(HD_GRAPHIC_NO_HOVER_SELECTED[j] == name) return true;
+    }
+    return false;
+}
+
+global.isHDGraphicNoHoverSelected = isHDGraphicNoHoverSelected;

@@ -1,0 +1,173 @@
+class ConfigSystemPage
+{
+    var _owner;
+    var _window;
+    var _root;
+
+    var _layers = [];
+    var _buttons = [];
+    var _items = [];
+
+    var _systemYes = [];
+    var _systemNo = [];
+    var _confirmButtons = [];
+    var _confirmItems = [];
+    var _messageSpeedSlider;
+    var _autoSpeedSlider;
+
+    function ConfigSystemPage(win, root, owner)
+    {
+        _window = win;
+        _root = root;
+        _owner = owner;
+        build();
+    }
+
+    function finalize()
+    {
+        for(var i = 0; i < _buttons.count; i++) invalidate _buttons[i];
+        _buttons.clear();
+
+        for(var i = 0; i < _layers.count; i++) invalidate _layers[i];
+        _layers.clear();
+
+        invalidate _messageSpeedSlider;
+        invalidate _autoSpeedSlider;
+        _items.clear();
+    }
+
+    function setVisible(v)
+    {
+        for(var i = 0; i < _items.count; i++) _items[i].visible = v;
+    }
+
+    function build()
+    {
+        var layerStart = _layers.count;
+        var buttonStart = _buttons.count;
+
+        _owner.makeImageBackground(HD_SYSTEM_ROOT + "bg.png", 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, this);
+
+        var yesY = [319, 384, 459, 534, 609];
+        for(var i = 0; i < yesY.count; i++)
+        {
+            _systemYes[i] = _owner.makeImageTabButton(HD_SYSTEM_ROOT + "YES1.png", HD_SYSTEM_ROOT + "YES2.png", 634, yesY[i],
+                                               false, 77, 79, 77, 0, 0, this);
+            _systemNo[i] = _owner.makeImageTabButton(HD_SYSTEM_ROOT + "NO1.png", HD_SYSTEM_ROOT + "NO2.png", 788, yesY[i],
+                                              false, 59, 61, 59, -4, 0, this);
+        }
+
+        _messageSpeedSlider = _owner.makeImageSlider(HD_SLIDER_KNOB_STORAGE, 500, 738, 421, 8, 100, 100, this);
+        _autoSpeedSlider = _owner.makeImageSlider(HD_SLIDER_KNOB_STORAGE, 500, 823, 421, 8, 100, 100, this);
+
+        _confirmItems = [
+            %[index:SystemRegister.CONFIRM_LOAD,          x:1218, y:419],
+            %[index:SystemRegister.CONFIRM_OVERWRITE,     x:1427, y:419],
+            %[index:SystemRegister.CONFIRM_DELETE,        x:1715, y:419],
+            %[index:SystemRegister.CONFIRM_COPY,          x:1290, y:506],
+            %[index:SystemRegister.CONFIRM_MOVE,          x:1569, y:506],
+            %[index:SystemRegister.CONFIRM_TITLE,         x:1290, y:593],
+            %[index:SystemRegister.CONFIRM_END,           x:1569, y:593],
+            %[index:SystemRegister.CONFIRM_SELECTJUMP,    x:1330, y:684],
+            %[index:SystemRegister.CONFIRM_LOGJUMP,       x:1724, y:684],
+            %[index:SystemRegister.CONFIRM_DEFAULT,       x:1330, y:776],
+            %[index:SystemRegister.CONFIRM_CLEARREADFLAG, x:1728, y:776]
+        ];
+        for(var i = 0; i < _confirmItems.count; i++)
+        {
+            var item = _confirmItems[i];
+            _confirmButtons[i] = _owner.makeCheckboxButton(HD_SYSTEM_ROOT + "checkbox.png", item.x, item.y, this);
+        }
+
+        collectPageItems(_items, layerStart, buttonStart);
+        _items.add(_messageSpeedSlider);
+        _items.add(_autoSpeedSlider);
+    }
+
+    function collectPageItems(target, layerStart, buttonStart)
+    {
+        for(var i = layerStart; i < _layers.count; i++) target.add(_layers[i]);
+        for(var i = buttonStart; i < _buttons.count; i++) target.add(_buttons[i]);
+    }
+
+    function syncFromConfig()
+    {
+        var systemValues = [
+            CONFIG.readSkip == 0,
+            CONFIG.voiceStopOnClick ? true : false,
+            CONFIG.lockSkip ? true : false,
+            CONFIG.lockAuto ? true : false,
+            CONFIG.routeGuide ? true : false
+        ];
+        for(var i = 0; i < systemValues.count; i++)
+        {
+            _systemYes[i].selected = systemValues[i];
+            _systemNo[i].selected = !systemValues[i];
+        }
+
+        _messageSpeedSlider.trim = _messageSpeedSlider.range - CONFIG.messageSpeed;
+        _autoSpeedSlider.trim = _autoSpeedSlider.range - (CONFIG.autoSpeed \ 100);
+
+        for(var i = 0; i < _confirmButtons.count; i++)
+            _confirmButtons[i].selected = CONFIG.confirmWindow[_confirmItems[i].index] ? true : false;
+    }
+
+    function handleButton(target)
+    {
+        for(var i = 0; i < _systemYes.count; i++)
+        {
+            if(target == _systemYes[i])
+            {
+                setSystemOption(i, true);
+                return true;
+            }
+            if(target == _systemNo[i])
+            {
+                setSystemOption(i, false);
+                return true;
+            }
+        }
+
+        for(var i = 0; i < _confirmButtons.count; i++)
+        {
+            if(target == _confirmButtons[i])
+            {
+                var index = _confirmItems[i].index;
+                CONFIG.confirmWindow[index] = CONFIG.confirmWindow[index] ? 0 : 1;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    function setSystemOption(index, enabled)
+    {
+        switch(index)
+        {
+        case 0: CONFIG.readSkip = enabled ? 0 : 1; break;
+        case 1: CONFIG.voiceStopOnClick = enabled ? 1 : 0; break;
+        case 2: CONFIG.lockSkip = enabled ? 1 : 0; break;
+        case 3: CONFIG.lockAuto = enabled ? 1 : 0; break;
+        case 4:
+            CONFIG.routeGuide = enabled ? 1 : 0;
+            if(_owner._adv) _owner._adv.routeGuideEnable(CONFIG.routeGuide);
+            break;
+        }
+    }
+
+    function onSliderMove(target)
+    {
+        if(target == _messageSpeedSlider)
+        {
+            CONFIG.messageSpeed = _messageSpeedSlider.range - _messageSpeedSlider.trim;
+            return true;
+        }
+        else if(target == _autoSpeedSlider)
+        {
+            CONFIG.autoSpeed = (_autoSpeedSlider.range - _autoSpeedSlider.trim) * 100;
+            return true;
+        }
+        return false;
+    }
+}

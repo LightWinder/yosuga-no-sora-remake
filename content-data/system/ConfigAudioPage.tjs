@@ -1,0 +1,210 @@
+class ConfigAudioPage
+{
+    var _owner;
+    var _window;
+    var _root;
+
+    var _layers = [];
+    var _buttons = [];
+    var _items = [];
+
+    var _voiceNameButtons = [];
+    var _voiceItems = [];
+    var _selectedVoice = 0;
+    var _voicePortrait;
+    var _voiceVolumeSlider;
+    var _audioSliders = [];
+    var _audioSliderMap = %[];
+
+    function ConfigAudioPage(win, root, owner)
+    {
+        _window = win;
+        _root = root;
+        _owner = owner;
+        build();
+    }
+
+    function finalize()
+    {
+        for(var i = 0; i < _buttons.count; i++) invalidate _buttons[i];
+        _buttons.clear();
+
+        for(var i = 0; i < _layers.count; i++) invalidate _layers[i];
+        _layers.clear();
+
+        invalidate _voiceVolumeSlider;
+        for(var i = 0; i < _audioSliders.count; i++) invalidate _audioSliders[i];
+        _audioSliders.clear();
+        _items.clear();
+    }
+
+    function setVisible(v)
+    {
+        for(var i = 0; i < _items.count; i++) _items[i].visible = v;
+    }
+
+    function build()
+    {
+        var layerStart = _layers.count;
+        var buttonStart = _buttons.count;
+
+        _owner.makeImageBackground(HD_VOICE_ROOT + "bg.png", 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, this);
+
+        _voiceItems = [
+            %[file:"sora",   detailIndex: 0,  x:389, y:393],
+            %[file:"nao",    detailIndex: 2,  x:632, y:393],
+            %[file:"akira",  detailIndex: 1,  x:883, y:393],
+            %[file:"kazuha", detailIndex: 3,  x:389, y:473],
+            %[file:"motoka", detailIndex: 4,  x:632, y:473],
+            %[file:"ryohei", detailIndex: 5,  x:883, y:473],
+            %[file:"yahiro", detailIndex: 6,  x:389, y:561],
+            %[file:"kozue",  detailIndex: 7,  x:632, y:561],
+            %[file:"npc",    detailIndex:10,  x:883, y:561]
+        ];
+        for(var i = 0; i < _voiceItems.count; i++)
+        {
+            var item = _voiceItems[i];
+            _voiceNameButtons[i] = _owner.makeImageChoiceButton(HD_VOICE_ROOT + item.file + ".png", item.x, item.y, this);
+        }
+
+        _voicePortrait = _owner.makeImage(HD_VOICE_PORTRAIT_ROOT + "sora.png", 85, 389, this);
+        _voiceVolumeSlider = _owner.makeTrapezoidSlider(
+            HD_SLIDER_KNOB_STORAGE,
+            437, 715,
+            1051, 710,
+            100,
+            115, 155,
+            this
+        );
+
+        var audioSliderItems = [
+            %[name:"master", x:1374, y:406, w:422],
+            %[name:"voice",  x:1429, y:490, w:367],
+            %[name:"bgm",    x:1429, y:545, w:367],
+            %[name:"envse",  x:1429, y:602, w:367],
+            %[name:"se",     x:1429, y:661, w:367],
+            %[name:"movie",  x:1429, y:716, w:367]
+        ];
+        for(var i = 0; i < audioSliderItems.count; i++)
+        {
+            var item = audioSliderItems[i];
+            var slider = _owner.makeHorizontalTrapezoidSlider(
+                HD_SLIDER_KNOB_STORAGE,
+                item.x, item.y,
+                item.w, 8,
+                100,
+                100, 100,
+                this
+            );
+            _audioSliders[i] = slider;
+            _audioSliderMap[item.name] = slider;
+        }
+
+        collectPageItems(_items, layerStart, buttonStart);
+        _items.add(_voiceVolumeSlider);
+        for(var i = 0; i < _audioSliders.count; i++) _items.add(_audioSliders[i]);
+        selectVoice(0);
+    }
+
+    function collectPageItems(target, layerStart, buttonStart)
+    {
+        for(var i = layerStart; i < _layers.count; i++) target.add(_layers[i]);
+        for(var i = buttonStart; i < _buttons.count; i++) target.add(_buttons[i]);
+    }
+
+    function selectVoice(index)
+    {
+        _selectedVoice = index;
+        for(var i = 0; i < _voiceNameButtons.count; i++)
+            _voiceNameButtons[i].selected = (i == index);
+
+        var item = _voiceItems[index];
+        var storage = HD_VOICE_PORTRAIT_ROOT + item.file + ".png";
+        _voicePortrait.loadImages(storage);
+        _voicePortrait.setSizeToImageSize();
+
+        var portraitX = 81 + (288 - _voicePortrait.width) \ 2;
+        var portraitY = 826 - _voicePortrait.height;
+        if(item.file == "npc") portraitY = 378 + (452 - _voicePortrait.height) \ 2;
+        _voicePortrait.setPos(portraitX, portraitY);
+
+        _voiceVolumeSlider.trim = int(100 * CONFIG.voiceDetails[item.detailIndex].volume);
+    }
+
+    function syncFromConfig()
+    {
+        for(var i = 0; i < _voiceNameButtons.count; i++)
+            _voiceNameButtons[i].selected = (i == _selectedVoice);
+        _voiceVolumeSlider.trim = int(100 * CONFIG.voiceDetails[_voiceItems[_selectedVoice].detailIndex].volume);
+        
+        _audioSliderMap.master.trim = int(100 * CONFIG.volMaster);
+        _audioSliderMap.voice.trim = int(100 * CONFIG.volVoice);
+        _audioSliderMap.bgm.trim = int(100 * CONFIG.volBgm);
+        _audioSliderMap.envse.trim = int(100 * CONFIG.volEnvSe);
+        _audioSliderMap.se.trim = int(100 * CONFIG.volSe);
+        _audioSliderMap.movie.trim = int(100 * CONFIG.volMovie);
+    }
+
+    function handleButton(target)
+    {
+        for(var i = 0; i < _voiceNameButtons.count; i++)
+        {
+            if(target == _voiceNameButtons[i])
+            {
+                selectVoice(i);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function onSliderMove(target)
+    {
+        if(target == _voiceVolumeSlider)
+        {
+            CONFIG.voiceDetails[_voiceItems[_selectedVoice].detailIndex].volume = _voiceVolumeSlider.trim / 100.0;
+            _owner.applyVoiceDetailVolume();
+            return true;
+        }
+        else if(target == _audioSliderMap.master)
+        {
+            CONFIG.volMaster = _audioSliderMap.master.trim / 100.0;
+            _owner.applyMasterVolume(BGM);
+            _owner.applyMasterVolume(SE);
+            _owner.applyMasterVolume(ENVSE);
+            _owner.applyMasterVolume(VOICE);
+            _owner.applyMasterVolume(BGV);
+            return true;
+        }
+        else if(target == _audioSliderMap.voice)
+        {
+            CONFIG.volVoice = _audioSliderMap.voice.trim / 100.0;
+            if(_owner._adv && VOICE !== null) VOICE.volume = CONFIG.volVoice;
+            return true;
+        }
+        else if(target == _audioSliderMap.bgm)
+        {
+            CONFIG.volBgm = _audioSliderMap.bgm.trim / 100.0;
+            if(BGM !== null) BGM.volume = CONFIG.volBgm;
+            return true;
+        }
+        else if(target == _audioSliderMap.envse)
+        {
+            CONFIG.volEnvSe = _audioSliderMap.envse.trim / 100.0;
+            if(ENVSE !== null) ENVSE.volume = CONFIG.volEnvSe;
+            return true;
+        }
+        else if(target == _audioSliderMap.se)
+        {
+            CONFIG.volSe = _audioSliderMap.se.trim / 100.0;
+            if(SE !== null) SE.volume = CONFIG.volSe;
+            return true;
+        }
+        else if(target == _audioSliderMap.movie)
+        {
+            CONFIG.volMovie = _audioSliderMap.movie.trim / 100.0;
+            return true;
+        }
+        return false;
+    }
+}
