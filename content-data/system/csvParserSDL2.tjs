@@ -1,0 +1,55 @@
+// CSVParser fallback for krkrsdl2 targets where csvParser.dll is unavailable.
+// Generated *.csv.tjs files are not consistent about filename/variable casing:
+// charData keeps its camel case, while character CSVs are lowercase. Try both.
+
+class CSVParser {
+	var _data = [];
+	var _index = 0;
+	var _count = 0;
+
+	function CSVParser() {
+	}
+
+	function initStorage(filename) {
+		var tjsFile = filename + ".tjs";
+		if(!Storages.isExistentStorage(tjsFile)) {
+			tjsFile = filename.toLowerCase() + ".tjs";
+			if(!Storages.isExistentStorage(tjsFile))
+				throw new Exception("CSVParser: cannot find " + tjsFile);
+		}
+
+		var stem = filename
+			.replace(/\.[^.]+$/, "")
+			.replace(/[^a-zA-Z0-9]/g, "_");
+		var varName = "_" + stem + "_csv_data";
+
+		Scripts.evalStorage(tjsFile);
+		try {
+			_data = global[varName];
+		} catch(e) {
+			_data = void;
+		}
+		if(_data === void) {
+			varName = "_" + stem.toLowerCase() + "_csv_data";
+			try {
+				_data = global[varName];
+			} catch(e) {
+				_data = void;
+			}
+		}
+		if(_data === void) {
+			throw new Exception("CSVParser: data variable " + varName +
+				" not found after loading " + tjsFile);
+		}
+
+		_count = _data.count;
+		_index = 0;
+	}
+
+	function getNextLine() {
+		if(_index >= _count) return void;
+		return _data[_index++];
+	}
+}
+
+Debug.notice("SDL2 CSVParser compatibility loaded");

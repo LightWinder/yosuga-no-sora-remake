@@ -151,20 +151,26 @@ AddAutoPath("content-data/collect_voice/");
 
 delete AddAutoPath;
 
-// krkrsdl2 does not enumerate macOS system fonts. The launcher exposes a CJK
-// font in the project directory, and Font.addFont returns the exact face name
-// that this runtime can use.
+// krkrsdl2 does not enumerate macOS system fonts. font-macos.ttc is a symlink
+// to a system CJK font, and Font.addFont returns the exact face name that this
+// runtime can use. Keep the configured default font if registration fails.
 var initializePlatform = System.platformName;
+var initializeWindows =
+	initializePlatform == "Win32" || initializePlatform == "Win64";
 var initializeMacOS =
 	initializePlatform == "Mac OS X" || initializePlatform == "macOS";
 if(initializeMacOS &&
 	typeof global.Font == "Object" &&
 	typeof global.Font.addFont == "Object" &&
 	Storages.isExistentStorage("font-macos.ttc")){
-	var macFontFaces = global.Font.addFont("font-macos.ttc");
-	if(macFontFaces.count > 0)
-		System.setArgument("-deffont", macFontFaces[0]);
-	invalidate macFontFaces;
+	try{
+		var macFontFaces = global.Font.addFont("font-macos.ttc");
+		if(macFontFaces.count > 0)
+			System.setArgument("-deffont", macFontFaces[0]);
+		invalidate macFontFaces;
+	}catch(e){
+		dm("macOS font fallback: " + e);
+	}
 }
 
 //プラグイン追加
@@ -188,11 +194,11 @@ function LoadScript(name){
 }
 
 //各システム読み込み
-// csvParser.dll and windowEx.dll are Win32 plugins. Use the existing TJS
-// compatibility paths when krkrsdl2 does not expose their native classes.
-if(initializeMacOS)
-	LoadScript("csvParserCompat.tjs");
-if(initializeMacOS && typeof Window.registerExEvent == "undefined")
+// csvParser.dll and windowEx.dll are Win32 plugins. Keep Windows on its native
+// path and let all SDL2 targets (macOS, Android, etc.) share the TJS fallback.
+if(!initializeWindows)
+	LoadScript("csvParserSDL2.tjs");
+if(!initializeWindows && typeof Window.registerExEvent == "undefined")
 	Window.registerExEvent = function(){};
 LoadScript("Utility.tjs");
 LoadScript("AffineLayer.tjs");
