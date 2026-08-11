@@ -116,7 +116,11 @@ set(IOS_RESOURCES_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/ios CACHE FILEP
 endif()
 
 if(APPLE AND NOT IOS)
-enable_language(OBJCXX)
+# SDL contains Objective-C (.m) sources, while the macOS overlay below uses
+# Objective-C++ (.mm). Enable both languages explicitly; enabling only OBJCXX
+# makes CMake classify SDL's .m files as Objective-C++ and pass -std=gnu++14
+# together with -x objective-c, which Apple Clang rejects.
+enable_language(OBJC OBJCXX)
 set(MACOS_RESOURCES_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/macos CACHE FILEPATH "The path to the resources for macOS.")
 add_compile_options(-Wno-declaration-after-statement)
 list(APPEND KRKRSDL2_CFLAGS
