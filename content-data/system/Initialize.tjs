@@ -151,27 +151,30 @@ AddAutoPath("content-data/collect_voice/");
 
 delete AddAutoPath;
 
-// krkrsdl2 does not enumerate macOS system fonts. font-macos.ttc is a symlink
-// to a system CJK font, and Font.addFont returns the exact face name that this
-// runtime can use. Keep the configured default font if registration fails.
+// Register the bundled Xiaolai font once and make it the shared default on
+// krkrz and SDL2. Keep the legacy face list only as a defensive fallback.
+var YOSUGA_DEFAULT_FONT_FILE = "Xiaolai-Regular.ttf";
+var YOSUGA_DEFAULT_FONT_FACE =
+	"メイリオ,HG丸ｺﾞｼｯｸM-PRO,ＭＳ ゴシック";
+if(typeof global.Font == "Object" &&
+	typeof global.Font.addFont == "Object" &&
+	Storages.isExistentStorage(YOSUGA_DEFAULT_FONT_FILE)){
+	try{
+		var defaultFontFaces =
+			global.Font.addFont(YOSUGA_DEFAULT_FONT_FILE);
+		if(defaultFontFaces.count > 0){
+			YOSUGA_DEFAULT_FONT_FACE = defaultFontFaces[0];
+			System.setArgument("-deffont", YOSUGA_DEFAULT_FONT_FACE);
+		}
+		invalidate defaultFontFaces;
+	}catch(e){
+		dm("Default font registration: " + e);
+	}
+}
+
 var initializePlatform = System.platformName;
 var initializeWindows =
 	initializePlatform == "Win32" || initializePlatform == "Win64";
-var initializeMacOS =
-	initializePlatform == "Mac OS X" || initializePlatform == "macOS";
-if(initializeMacOS &&
-	typeof global.Font == "Object" &&
-	typeof global.Font.addFont == "Object" &&
-	Storages.isExistentStorage("font-macos.ttc")){
-	try{
-		var macFontFaces = global.Font.addFont("font-macos.ttc");
-		if(macFontFaces.count > 0)
-			System.setArgument("-deffont", macFontFaces[0]);
-		invalidate macFontFaces;
-	}catch(e){
-		dm("macOS font fallback: " + e);
-	}
-}
 
 //プラグイン追加
 Plugins.link("extrans.dll");
