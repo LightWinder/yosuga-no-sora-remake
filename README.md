@@ -1,19 +1,29 @@
-# 缘之空：高清重制
+# Yosuga no Sora: HD Remake
 
-本仓库是《缘之空》高清重制的完整游戏工程。项目以修改后的
-[Kirikiri SDL2](https://github.com/LightWinder/krkrsdl2) 为跨平台运行基础，
-同时保留原生 Kirikiri Z Windows 运行时作为兼容版本。
+English | [简体中文](README.zh-CN.md)
 
-## 项目结构
+This repository contains the complete game project for the Yosuga no Sora HD
+remake. It uses a modified version of
+[Kirikiri SDL2](https://github.com/LightWinder/krkrsdl2) as its cross-platform
+runtime while retaining the native Kirikiri Z runtime as a Windows-compatible
+alternative.
 
-- `data/`：唯一的游戏内容源，包含脚本、图片、字体、音频和视频素材。
-- `src/`：Kirikiri SDL2 引擎及项目适配源码。
-- `external/`：SDL、Kirikiri Z 等固定版本的第三方依赖。
-- `android-project/`：Android Gradle 工程，构建时直接使用根目录的 `data/`。
-- `platform/windows-krkrz/`：原生 Kirikiri Z Windows 运行时、插件和启动配置。
-- `tools/`：内容清单及后续发布工具。
+## Project Structure
 
-## 获取源码
+- `data/` is the single source of game content, including scripts, images,
+  fonts, audio, and video assets.
+- `src/` contains the Kirikiri SDL2 engine and project-specific adaptations.
+- `external/` contains pinned third-party dependencies such as SDL and
+  Kirikiri Z.
+- `android-project/` is the Android Gradle project and reads content directly
+  from the root `data/` directory while building.
+- `platform/windows-krkrz/` contains the native Kirikiri Z Windows runtime,
+  plugins, and startup configuration.
+- `tools/` contains content-manifest utilities and future release tooling.
+
+## Getting the Source
+
+Clone the repository with its submodules, then download the Git LFS content:
 
 ```sh
 git clone --recurse-submodules https://github.com/LightWinder/yosuga-no-sora-remake.git
@@ -21,7 +31,7 @@ cd yosuga-no-sora-remake
 git lfs pull
 ```
 
-已有工作区更新依赖：
+To update the dependencies in an existing working tree:
 
 ```sh
 git submodule sync --recursive
@@ -29,9 +39,54 @@ git submodule update --init --recursive
 git lfs pull
 ```
 
-## 当前状态
+## Current Status
 
-SDL2 桌面端和 Android 工程均从 `data/` 读取游戏内容。Windows KRKRZ
-运行时已独立归档，但各平台的统一打包命令和正式资源分包方案尚未加入。
+The SDL2 desktop targets and Android project both read game content from
+`data/`. The Windows KRKRZ runtime is stored separately under `platform/`.
+Commands for production packaging and content-pack distribution have not been
+added yet.
 
-Kirikiri SDL2 源码使用 MIT 许可证，详见 `LICENSE`。第三方组件适用各自目录中的许可证。
+## Development Launchers
+
+### Windows KRKRZ
+
+Windows can launch the prebuilt native KRKRZ runtime using the built-in
+PowerShell. This requires neither Python nor an engine build and does not copy
+game assets:
+
+```powershell
+.\project.ps1 run windows-krkrz
+```
+
+### Windows SDL2
+
+The Windows SDL2 version requires CMake and a Visual Studio C++ toolchain. The
+first launch performs a full build; subsequent launches build incrementally.
+Python is not required:
+
+```powershell
+.\project.ps1 run windows-sdl2
+```
+
+### macOS SDL2
+
+On macOS, CMake creates an SDL2 development build without embedding a copy of
+the game assets. The first launch performs a full build; subsequent launches
+build incrementally:
+
+```sh
+./project.sh run macos-sdl2
+```
+
+Append engine options directly to a launcher command when needed:
+
+```sh
+./project.sh run macos-sdl2 -about
+```
+
+All development launchers read the repository's `data/` directory directly,
+so changes to game scripts and assets do not require repackaging.
+
+The Kirikiri SDL2 source code is licensed under the MIT License; see `LICENSE`.
+Third-party components remain subject to the licenses in their respective
+directories.

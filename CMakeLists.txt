@@ -36,6 +36,7 @@ option(OPTION_ENABLE_CASEINSENSITIVITY "Enable case insensitivity. May malfuncti
 option(OPTION_ENABLE_SDL_THREADS "Enable SDL threads. May be more useful on platforms that do not have a good implementation of std::thread." OFF)
 option(OPTION_ENABLE_EXTERNAL_PLUGINS "Enable external plugins. This will make Plugins.link load a plugin instead of a no-op." ON)
 option(OPTION_BUILD_MACOS_BUNDLE "Build an application bundle for macOS." ON)
+option(KRKRSDL2_GENERATE_CONTENT_MANIFEST "Generate the content manifest while building desktop targets." ON)
 option(KRKRSDL2_EMSCRIPTEN_ENABLE_JS_FALLBACK "Enable JavaScript fallback for the Emscripten build." OFF)
 option(KRKRSDL2_EMSCRIPTEN_ENABLE_BIGINT "Enable BigInt support for the Emscripten build." ON)
 option(KRKRSDL2_EMSCRIPTEN_ENABLE_WASM_SIMD "Enable WebAssembly SIMD for the Emscripten build." OFF)
@@ -672,7 +673,7 @@ set_target_properties(${KRKRSDL2_NAME} PROPERTIES OUTPUT_NAME "krkrsdl2")
 endif()
 endif()
 
-if(NOT ANDROID)
+if(NOT ANDROID AND KRKRSDL2_GENERATE_CONTENT_MANIFEST)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 set(CONTENT_MANIFEST_TARGET krkrsdl2_content_manifest)
 add_custom_target(${CONTENT_MANIFEST_TARGET}
