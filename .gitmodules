@@ -1,0 +1,3 @@
+[submodule "engine/krkrsdl2"]
+	path = engine/krkrsdl2
+	url = https://github.com/LightWinder/krkrsdl2.git

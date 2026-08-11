@@ -1,0 +1,35 @@
+name: Repository Check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-source-tree:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out game, LFS content, and engine dependencies
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          submodules: recursive
+
+      - name: Verify pinned engine revisions
+        shell: bash
+        run: |
+          test "$(git -C engine/krkrsdl2 rev-parse HEAD)" = "313f52b29eb5962a48fde8ab7027f626efb46283"
+          test "$(git -C engine/krkrsdl2/external/krkrz rev-parse HEAD)" = "81f05aaac7545a116551df271ad64c6221184226"
+
+      - name: Verify Git LFS objects
+        run: git lfs fsck
+
+      - name: Verify content paths and manifest
+        run: |
+          python3 engine/krkrsdl2/tools/generate_content_manifest.py \
+            --root content-data \
+            --output build/content-manifest.json \
+            --config engine/krkrsdl2/content-packs.json \
+            --cache build/content-manifest-cache.json \
+            --full
