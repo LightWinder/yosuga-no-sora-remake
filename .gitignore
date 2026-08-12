@@ -19,3 +19,4 @@
 android-project/app/.cxx/
 android-project/local.properties
 android-project/.idea/
+android-project/gradle/gradle-daemon-jvm.properties
