@@ -87,6 +87,19 @@ Append engine options directly to a launcher command when needed:
 All development launchers read the repository's `data/` directory directly,
 so changes to game scripts and assets do not require repackaging.
 
+## Windows KRKRZ Releases
+
+Pushing a tag matching `v*` runs the Windows KRKRZ release workflow. It
+validates the Git LFS content, regenerates the full content manifest, packages
+the native runtime with `data/`, and creates a GitHub Release automatically.
+The workflow can also be started manually with a release tag and prerelease
+option.
+
+GitHub limits each release asset to 2 GiB, so the package is published as a
+multipart 7-Zip archive. Download every `.7z.NNN` file into the same directory
+and open `.7z.001` with 7-Zip. A SHA-256 checksum file is included with the
+release assets.
+
 The Kirikiri SDL2 source code is licensed under the MIT License; see `LICENSE`.
 Third-party components remain subject to the licenses in their respective
 directories.
