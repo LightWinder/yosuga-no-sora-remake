@@ -67,4 +67,14 @@ macOS 使用 CMake 创建不包含素材副本的 SDL2 开发构建。第一次�
 
 这些启动命令都会直接读取仓库中的 `data/`，修改游戏脚本或素材后无需重新打包。
 
+## Windows KRKRZ 发布
+
+推送匹配 `v*` 的标签后，Windows KRKRZ 发布工作流会自动校验 Git LFS 素材、重新生成
+完整内容清单、把原生运行时与 `data/` 打包，并创建 GitHub Release。也可以在 Actions
+页面手动输入发布标签，并选择是否标记为预发布版本。
+
+GitHub 要求每个 Release 附件小于 2 GiB，因此游戏包会发布成分卷 7-Zip 压缩包。请把
+全部 `.7z.NNN` 文件下载到同一目录，然后使用 7-Zip 打开 `.7z.001`。Release 同时提供
+SHA-256 校验文件。
+
 Kirikiri SDL2 源码使用 MIT 许可证，详见 `LICENSE`。第三方组件适用各自目录中的许可证。
