@@ -11,6 +11,7 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 	var _movie;
 
 	var _te;
+	var _finalizeDone = false;
 
 	var SPR_LIST = [
 		%[id:"ATTENTION_MARK", file:"ui_1920/FRM_0502.png", center:[179,  34], pos:[960, 235]], 
@@ -62,8 +63,10 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 		_movie.hitThreshold = 256;
 		_state = stLogo;
 		if(!_movie.start("sphere", this)){
-			invalidate _movie;
+			var failedMovie = _movie;
 			_movie = null;
+			if(failedMovie !== void && failedMovie !== null && isvalid failedMovie)
+				invalidate failedMovie;
 			OnceCall(step02, 1);
 		}
 
@@ -74,22 +77,43 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 		window.addInputNotify(this);
 	}
 	function finalize(){
-		window.removeInputNotify(this);
+		if(_finalizeDone) return;
+		_finalizeDone = true;
 
-		cancel();
-		close();
+		try{ window.removeInputNotify(this); }catch(eInput){}
+
+		try{ cancel(); }catch(eCancel){ Debug.message("Logo cancel failed: " + eCancel); }
+		try{ close(); }catch(eClose){ Debug.message("Logo close failed: " + eClose); }
 
 		for(var i=0;i<SPR_LIST.count;i++){
-			invalidate _spr[SPR_LIST[i].id];
+			var id = SPR_LIST[i].id;
+			var sprite = _spr[id];
+			if(sprite !== void && sprite !== null && isvalid sprite){
+				try{ invalidate sprite; }catch(eSprite){}
+			}
+			_spr[id] = null;
 		}
-		invalidate _spr["BASE"];
+		var base = _spr["BASE"];
+		if(base !== void && base !== null && isvalid base){
+			try{ invalidate base; }catch(eBase){}
+		}
+		_spr["BASE"] = null;
 
-		invalidate _movie;
+		var movie = _movie;
+		_movie = null;
+		if(movie !== void && movie !== null && isvalid movie){
+			try{ invalidate movie; }catch(eMovie){}
+		}
 
-		_te.stop();
-		invalidate _te;
+		var timer = _te;
+		_te = null;
+		if(timer !== void && timer !== null && isvalid timer){
+			try{ timer.stop(); }catch(eTimerStop){}
+			try{ invalidate timer; }catch(eTimer){}
+		}
 
-		global.Sprite.finalize();
+		try{ global.Sprite.finalize(); }
+		catch(eFinalize){ Debug.message("Logo finalize failed: " + eFinalize); }
 	}
 
 	//ロゴ：時間待ち
