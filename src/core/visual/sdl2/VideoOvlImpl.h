@@ -22,7 +22,7 @@
 
 #include "NativeEventQueue.h"
 
-#if defined(__APPLE__) && !defined(__IPHONEOS__)
+#if defined(__APPLE__)
 #define KRKRSDL2_MACOS_VIDEO_OVERLAY 1
 #endif
 

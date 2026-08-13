@@ -23,7 +23,7 @@
 #ifdef KRKRZ_ENABLE_CANVAS
 #include "OpenGLScreenSDL2.h"
 #endif
-#if defined(_WIN32) || (defined(__APPLE__) && !defined(__IPHONEOS__))
+#if defined(_WIN32) || defined(__APPLE__)
 #include <SDL_syswm.h>
 #endif
 #include <SDL.h>
@@ -2579,7 +2579,7 @@ HWND TVPWindowWindow::GetHandle() const
 
 void *TVPWindowWindow::GetNativeWindowHandle() const
 {
-#if defined(_WIN32) || (defined(__APPLE__) && !defined(__IPHONEOS__))
+#if defined(_WIN32) || defined(__APPLE__)
 	SDL_SysWMinfo syswminfo;
 	SDL_VERSION(&syswminfo.version);
 	if (!this->window || !SDL_GetWindowWMInfo(this->window, &syswminfo))
@@ -2589,6 +2589,9 @@ void *TVPWindowWindow::GetNativeWindowHandle() const
 #ifdef _WIN32
 	return syswminfo.subsystem == SDL_SYSWM_WINDOWS
 		? static_cast<void *>(syswminfo.info.win.window) : nullptr;
+#elif defined(__IPHONEOS__)
+	return syswminfo.subsystem == SDL_SYSWM_UIKIT
+		? static_cast<void *>(syswminfo.info.uikit.window) : nullptr;
 #else
 	return syswminfo.subsystem == SDL_SYSWM_COCOA
 		? static_cast<void *>(syswminfo.info.cocoa.window) : nullptr;

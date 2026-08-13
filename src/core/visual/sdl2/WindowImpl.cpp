@@ -1384,7 +1384,7 @@ HWND tTJSNI_Window::GetSurfaceWindowHandle()
 }
 #endif
 //---------------------------------------------------------------------------
-#if defined(__APPLE__) && !defined(__IPHONEOS__)
+#if defined(__APPLE__)
 void *tTJSNI_Window::GetNativeWindowHandle()
 {
 	return Form ? Form->GetNativeWindowHandle() : nullptr;
