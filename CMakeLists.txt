@@ -112,7 +112,6 @@ include(CheckCXXCompilerFlag)
 check_cxx_compiler_flag(-fno-delete-null-pointer-checks KRKRSDL2_COMPILER_SUPPORTS_NO_DELETE_NULL_POINTER_CHECKS)
 
 if(IOS)
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/out/library)
 set(CMAKE_XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2")
 endif()
 
@@ -440,13 +439,10 @@ set_source_files_properties(
 	PROPERTIES SKIP_PRECOMPILE_HEADERS ON
 )
 endif()
-find_library(AVFOUNDATION_FRAMEWORK AVFoundation)
-find_library(COREMEDIA_FRAMEWORK CoreMedia)
-find_library(QUARTZCORE_FRAMEWORK QuartzCore)
 list(APPEND KRKRSDL2_LIBS
-	${AVFOUNDATION_FRAMEWORK}
-	${COREMEDIA_FRAMEWORK}
-	${QUARTZCORE_FRAMEWORK}
+	"-framework AVFoundation"
+	"-framework CoreMedia"
+	"-framework QuartzCore"
 )
 endif()
 
