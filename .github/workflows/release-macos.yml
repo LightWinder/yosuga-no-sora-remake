@@ -22,7 +22,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -218,7 +218,21 @@ jobs:
               --title "$RELEASE_TAG" --generate-notes)
             [[ "$EVENT_NAME" == 'push' ]] && args+=(--verify-tag) || args+=(--target "$COMMIT_SHA")
             [[ "$IS_PRERELEASE" == 'true' ]] && args+=(--prerelease)
-            gh "${args[@]}"
+            if ! gh "${args[@]}"; then
+              for ((attempt = 1; attempt <= 12; attempt++)); do
+                if json=$(gh release view "$RELEASE_TAG" --repo "$GH_REPOSITORY" \
+                  --json isDraft 2>/dev/null); then
+                  exists=true
+                  is_draft=$(python3 -c \
+                    'import json,sys; print(str(json.load(sys.stdin)["isDraft"]).lower())' \
+                    <<<"$json")
+                  break
+                fi
+                echo "Waiting for another workflow to create the release ($attempt/12)."
+                sleep 5
+              done
+              [[ "$exists" == 'true' ]] || exit 1
+            fi
           fi
           gh release upload "$RELEASE_TAG" "${assets[@]}" \
             --repo "$GH_REPOSITORY" --clobber

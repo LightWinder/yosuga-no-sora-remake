@@ -20,7 +20,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -225,7 +225,22 @@ jobs:
             }
 
             & gh @createArguments
-            if ($LASTEXITCODE -ne 0) { throw 'Draft GitHub Release creation failed' }
+            if ($LASTEXITCODE -ne 0) {
+              $releaseExists = $false
+              foreach ($attempt in 1..12) {
+                $existingReleaseJson = & gh release view $env:RELEASE_TAG `
+                  --repo $env:GH_REPOSITORY --json isDraft 2>$null
+                if ($LASTEXITCODE -eq 0) {
+                  $existingRelease = $existingReleaseJson | ConvertFrom-Json
+                  $releaseExists = $true
+                  break
+                }
+                Start-Sleep -Seconds 5
+              }
+              if (-not $releaseExists) {
+                throw 'Draft GitHub Release creation failed'
+              }
+            }
           }
 
           $uploadArguments = @(

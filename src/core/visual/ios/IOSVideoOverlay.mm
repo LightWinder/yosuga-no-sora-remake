@@ -1,4 +1,5 @@
 #import <AVFoundation/AVFoundation.h>
+#import <objc/runtime.h>
 #import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIKit.h>
 
@@ -6,6 +7,73 @@
 #include <cmath>
 
 #include "MacVideoOverlay.h"
+
+static __weak UIWindowScene *TVPIOSApplicationWindowScene;
+
+@interface TVPIOSSceneDelegate : UIResponder <UIWindowSceneDelegate>
+@end
+
+@implementation TVPIOSSceneDelegate
+- (void)scene:(UIScene *)scene
+    willConnectToSession:(UISceneSession *)session
+             options:(UISceneConnectionOptions *)connectionOptions
+{
+    (void)session;
+    (void)connectionOptions;
+    if([scene isKindOfClass:UIWindowScene.class])
+        TVPIOSApplicationWindowScene = (UIWindowScene *)scene;
+}
+@end
+
+/*
+ * SDL 2 creates its UIKit window with initWithFrame:.  A window created that
+ * way is not associated with a UIWindowScene, which leaves the application
+ * rendering off-screen on scene-only versions of UIKit.  Keep this bridge in
+ * the application so the SDL submodule remains unmodified and older iOS
+ * versions continue to use SDL's normal lifecycle.
+ */
+@interface UIWindow (TVPIOSSceneCompatibility)
+- (void)tvp_makeKeyAndVisible;
+@end
+
+@implementation UIWindow (TVPIOSSceneCompatibility)
++ (void)load
+{
+    if(@available(iOS 13.0, *)) {
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
+            Method original = class_getInstanceMethod(self,
+                @selector(makeKeyAndVisible));
+            Method replacement = class_getInstanceMethod(self,
+                @selector(tvp_makeKeyAndVisible));
+            method_exchangeImplementations(original, replacement);
+        });
+    }
+}
+
+- (void)tvp_makeKeyAndVisible
+{
+    if(@available(iOS 13.0, *)) {
+        UIWindowScene *scene = TVPIOSApplicationWindowScene;
+        Class sdlWindowClass = NSClassFromString(@"SDL_uikitwindow");
+        if(!self.windowScene && scene && sdlWindowClass &&
+           [self isKindOfClass:sdlWindowClass]) self.windowScene = scene;
+    }
+    [self tvp_makeKeyAndVisible];
+}
+@end
+
+@interface TVPIOSMovieView : UIView
+@property(nonatomic, strong) AVPlayerLayer *movieLayer;
+@end
+
+@implementation TVPIOSMovieView
+- (void)layoutSubviews
+{
+    [super layoutSubviews];
+    self.movieLayer.frame = self.bounds;
+}
+@end
 
 @interface TVPIOSMovieController : NSObject
 - (instancetype)initWithPath:(NSString *)path
@@ -37,7 +105,7 @@
     AVPlayerItem *_item;
     AVPlayer *_player;
     AVPlayerLayer *_playerLayer;
-    UIView *_view;
+    TVPIOSMovieView *_view;
     __weak UIView *_contentView;
     id _endObserver;
     id _failureObserver;
@@ -77,7 +145,7 @@
     _contentView = window.rootViewController.view ?: window;
     if(!_contentView) return nil;
 
-    _view = [[UIView alloc] initWithFrame:_contentView.bounds];
+    _view = [[TVPIOSMovieView alloc] initWithFrame:_contentView.bounds];
     _view.autoresizingMask = UIViewAutoresizingFlexibleWidth |
         UIViewAutoresizingFlexibleHeight;
     _view.backgroundColor = UIColor.blackColor;
@@ -85,8 +153,8 @@
 
     _playerLayer = [AVPlayerLayer playerLayerWithPlayer:_player];
     _playerLayer.frame = _view.bounds;
-    _playerLayer.autoresizingMask = kCALayerWidthSizable | kCALayerHeightSizable;
     _playerLayer.videoGravity = AVLayerVideoGravityResizeAspect;
+    _view.movieLayer = _playerLayer;
     [_view.layer addSublayer:_playerLayer];
     [_contentView addSubview:_view];
 
@@ -240,6 +308,7 @@
     _playerLayer.player = nil;
     [_playerLayer removeFromSuperlayer];
     [_view removeFromSuperview];
+    _view.movieLayer = nil;
     _playerLayer = nil;
     _view = nil;
     _contentView = nil;
