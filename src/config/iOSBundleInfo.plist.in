@@ -35,6 +35,24 @@
 	<!-- Modified from default CMake template -->
 	<key>UIRequiresFullScreen</key>
 	<true/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIStatusBarHidden</key>
+	<true/>
+	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<false/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>Kirikiri SDL2 uses the SDL2 library, which uses the Bluetooth functionality to connect to Bluetooth game pads.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>

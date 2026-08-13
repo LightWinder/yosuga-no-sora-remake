@@ -314,7 +314,7 @@ public:
 	HWND GetSurfaceWindowHandle();
 	HWND GetWindowHandle();
 #endif
-#if defined(__APPLE__) && !defined(__IPHONEOS__)
+#if defined(__APPLE__)
 	void *GetNativeWindowHandle();
 #endif
 	void GetVideoOffset(tjs_int &ofsx, tjs_int &ofsy);

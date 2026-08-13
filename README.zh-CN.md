@@ -12,6 +12,7 @@
 - `src/`：Kirikiri SDL2 引擎及项目适配源码。
 - `external/`：SDL、Kirikiri Z 等固定版本的第三方依赖。
 - `android-project/`：Android Gradle 工程，构建时直接使用根目录的 `data/`。
+- `ios-project/`：通过根目录 CMake 工程生成 iOS Xcode 项目。
 - `platform/windows-krkrz/`：原生 Kirikiri Z Windows 运行时、插件和启动配置。
 - `tools/`：内容清单及后续发布工具。
 
@@ -34,7 +35,8 @@ git lfs pull
 ## 当前状态
 
 SDL2 桌面端和 Android 工程均从 `data/` 读取游戏内容。Windows KRKRZ
-运行时已独立归档。目前已经支持自动打包 Windows KRKRZ 和 Android ARM64。
+运行时已独立归档。目前已经支持自动打包 Windows KRKRZ、Android ARM64、
+Apple Silicon macOS 和 iOS ARM64。
 
 ## 开发启动
 
@@ -88,5 +90,24 @@ Android 发布工作流会响应同一批 `v*` 标签，也可以手动启动。
 如需稳定的正式签名，请配置 `ANDROID_KEYSTORE_BASE64`、
 `ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS` 和 `ANDROID_KEY_PASSWORD` 四个仓库
 Secrets。未配置时工作流会明确回退到 Android 开发签名，并在 `BUILD-INFO.txt` 中注明。
+
+## Apple 发布
+
+macOS 与 iOS workflow 会响应同一批 `v*` 标签，也可以手动启动。macOS 生成 Apple
+Silicon `.dmg`，iOS 生成 arm64 `.ipa`。二者都会包含完整的 `data/`，并按 GitHub 单个
+附件小于 2 GiB 的限制发布成 7-Zip 分卷；打开首个 `.7z.001` 即可还原 DMG 或 IPA。
+
+macOS 应用使用 ad-hoc 签名，未做 Apple 公证。iOS 默认生成供后续重签名的 unsigned
+IPA。若需生成可安装到 provisioning profile 所覆盖设备上的 IPA，请同时配置四项仓库
+Secrets：
+
+- `IOS_CERTIFICATE_P12_BASE64`
+- `IOS_CERTIFICATE_PASSWORD`
+- `IOS_PROVISIONING_PROFILE_BASE64`
+- `IOS_DEVELOPMENT_TEAM`
+
+iOS 默认 bundle identifier 为 `com.lightwinder.yosuganosora.hdremake`。如果
+provisioning profile 使用其他标识，请在构建前设置仓库变量 `IOS_BUNDLE_IDENTIFIER`。
+本地生成 Xcode 项目的说明见 `ios-project/README.md`。
 
 Kirikiri SDL2 源码使用 MIT 许可证，详见 `LICENSE`。第三方组件适用各自目录中的许可证。

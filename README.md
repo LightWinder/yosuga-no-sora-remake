@@ -17,6 +17,7 @@ alternative.
   Kirikiri Z.
 - `android-project/` is the Android Gradle project and reads content directly
   from the root `data/` directory while building.
+- `ios-project/` generates the iOS Xcode project from the root CMake build.
 - `platform/windows-krkrz/` contains the native Kirikiri Z Windows runtime,
   plugins, and startup configuration.
 - `tools/` contains content-manifest utilities and future release tooling.
@@ -43,7 +44,8 @@ git lfs pull
 
 The SDL2 desktop targets and Android project both read game content from
 `data/`. The Windows KRKRZ runtime is stored separately under `platform/`.
-Automated release packaging currently covers Windows KRKRZ and Android ARM64.
+Automated release packaging covers Windows KRKRZ, Android ARM64, Apple Silicon
+macOS, and iOS ARM64.
 
 ## Development Launchers
 
@@ -112,6 +114,29 @@ For a stable release signature, configure all four repository secrets:
 `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
 and `ANDROID_KEY_PASSWORD`. Without them, the workflow deliberately uses the
 standard Android development key and records that fact in `BUILD-INFO.txt`.
+
+## Apple Releases
+
+The macOS and iOS workflows respond to the same `v*` tags and can also be run
+manually. macOS produces an Apple Silicon `.dmg`; iOS builds an arm64 `.ipa`.
+Both packages include the complete `data/` directory and are published as
+multipart 7-Zip volumes below GitHub's 2 GiB per-asset limit. Open the first
+`.7z.001` volume to reconstruct the DMG or IPA.
+
+The macOS app uses ad-hoc signing and is not notarized. The iOS workflow builds
+an unsigned IPA by default, suitable for later re-signing. To produce an IPA
+that can be installed on devices covered by your provisioning profile, set all
+four repository secrets:
+
+- `IOS_CERTIFICATE_P12_BASE64`
+- `IOS_CERTIFICATE_PASSWORD`
+- `IOS_PROVISIONING_PROFILE_BASE64`
+- `IOS_DEVELOPMENT_TEAM`
+
+The default iOS bundle identifier is
+`com.lightwinder.yosuganosora.hdremake`. Set the repository variable
+`IOS_BUNDLE_IDENTIFIER` before building if the provisioning profile uses a
+different identifier. See `ios-project/README.md` for local Xcode generation.
 
 The Kirikiri SDL2 source code is licensed under the MIT License; see `LICENSE`.
 Third-party components remain subject to the licenses in their respective
