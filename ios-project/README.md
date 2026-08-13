@@ -9,6 +9,7 @@ Requirements:
 - macOS with a full Xcode installation
 - CMake 3.24 or newer
 - Git LFS assets downloaded with `git lfs pull`
+- Xcode with an iOS 15 or newer device SDK
 
 Generate the Xcode project:
 
